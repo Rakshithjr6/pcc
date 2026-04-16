@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cold Chain Monitor - Simple</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .card { background: white; padding: 20px; margin: 10px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .critical { background: #fee; border-left: 4px solid #f00; }
+        .normal { background: #efe; border-left: 4px solid #0f0; }
+        .warning { background: #ffe; border-left: 4px solid #ff0; }
+        .btn { padding: 10px 20px; margin: 5px; border: none; border-radius: 4px; cursor: pointer; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .temp-display { font-size: 2em; font-weight: bold; }
+        .status { padding: 5px 10px; border-radius: 15px; color: white; font-size: 0.9em; }
+        .status.normal { background: #28a745; }
+        .status.critical { background: #dc3545; }
+        .status.warning { background: #ffc107; color: #000; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Pharmaceutical Cold Chain Monitoring System</h1>
+        
+        <div class="grid">
+            <div class="card">
+                <h2>Temperature</h2>
+                <div class="temp-display" id="temp-display">--°C</div>
+                <div class="status normal" id="temp-status">Normal</div>
+                <p>Safe Range: 2°C - 8°C</p>
+            </div>
+            
+            <div class="card">
+                <h2>Humidity</h2>
+                <div class="temp-display" id="humidity-display">--%</div>
+                <div class="status normal" id="humidity-status">Normal</div>
+                <p>Safe Range: 40% - 60%</p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h3>System Status</h3>
+            <p>Alerts: <span id="alert-count">0</span></p>
+            <p>Uptime: <span id="uptime">00:00:00</span></p>
+            <p>Doors: <span id="door-status">Closed</span></p>
+            <button class="btn btn-primary" id="start-btn">Start Monitoring</button>
+            <button class="btn btn-danger" id="reset-btn">Reset Alerts</button>
+        </div>
+        
+        <div class="card">
+            <h3>Alert History</h3>
+            <div id="alert-history">No alerts recorded</div>
+        </div>
+    </div>
+
+    <script>
+        class SimpleColdChainMonitor {
+            constructor() {
+                this.currentTemp = 5.0;
+                this.currentHumidity = 50.0;
+                this.isMonitoring = false;
+                this.alerts = [];
+                this.startTime = Date.now();
+                this.updateInterval = null;
+                this.uptimeInterval = null;
+                this.doorsOpen = false;
+                this.doorChangeInterval = null;
+                this.safeRange = { min: 2, max: 8 };
+                this.humiditySafeRange = { min: 40, max: 60 };
+                
+                this.init();
+            }
+            
+            init() {
+                this.bindEvents();
+                this.updateDisplay();
+                this.startUptimeCounter();
+            }
+            
+            bindEvents() {
+                document.getElementById('start-btn').addEventListener('click', () => {
+                    if (this.isMonitoring) {
+                        this.stopMonitoring();
+                    } else {
+                        this.startMonitoring();
+                    }
+                });
+                
+                document.getElementById('reset-btn').addEventListener('click', () => {
+                    this.resetAlerts();
+                });
+            }
+            
+            startMonitoring() {
+                if (this.isMonitoring) return;
+                
+                this.isMonitoring = true;
+                this.updateInterval = setInterval(() => {
+                    this.simulateData();
+                }, 1500);
+                
+                this.startRandomDoorChanges();
+                
+                const btn = document.getElementById('start-btn');
+                btn.textContent = 'Stop Monitoring';
+                btn.className = 'btn btn-danger';
+            }
+            
+            stopMonitoring() {
+                if (!this.isMonitoring) return;
+                
+                this.isMonitoring = false;
+                clearInterval(this.updateInterval);
+                this.stopRandomDoorChanges();
+                
+                const btn = document.getElementById('start-btn');
+                btn.textContent = 'Start Monitoring';
+                btn.className = 'btn btn-primary';
+            }
+            
+            simulateData() {
+                // Store previous values
+                const prevTemp = this.currentTemp;
+                const prevHumidity = this.currentHumidity;
+                
+                // Temperature simulation
+                const targetTemp = 5.0 + Math.sin(Date.now() / 5000) * 4;
+                const tempRandomInfluence = (Math.random() - 0.5) * 0.8;
+                const tempDelta = (targetTemp - this.currentTemp) * 0.3 + tempRandomInfluence;
+                this.currentTemp += tempDelta;
+                
+                // Occasional abnormal changes (10% chance)
+                if (Math.random() < 0.10 && !this.doorsOpen) {
+                    const abnormalChange = (Math.random() - 0.5) * 6;
+                    this.currentTemp += abnormalChange;
+                }
+                
+                // Occasionally force critical values (5% chance)
+                if (Math.random() < 0.05) {
+                    if (Math.random() < 0.5) {
+                        this.currentTemp = this.safeRange.min - Math.random() * 2;
+                    } else {
+                        this.currentTemp = this.safeRange.max + Math.random() * 2;
+                    }
+                }
+                
+                // Keep within bounds
+                this.currentTemp = Math.max(-5, Math.min(15, this.currentTemp));
+                
+                // Humidity simulation
+                const targetHumidity = 50.0 + Math.sin(Date.now() / 4000) * 15;
+                const humidityRandomInfluence = (Math.random() - 0.5) * 3;
+                const humidityDelta = (targetHumidity - this.currentHumidity) * 0.3 + humidityRandomInfluence;
+                this.currentHumidity += humidityDelta;
+                
+                // Occasionally force critical humidity (5% chance)
+                if (Math.random() < 0.05) {
+                    if (Math.random() < 0.5) {
+                        this.currentHumidity = this.humiditySafeRange.min - Math.random() * 10;
+                    } else {
+                        this.currentHumidity = this.humiditySafeRange.max + Math.random() * 10;
+                    }
+                }
+                
+                // Keep within bounds
+                this.currentHumidity = Math.max(20, Math.min(80, this.currentHumidity));
+                
+                this.checkAlerts();
+                this.updateDisplay();
+            }
+            
+            checkAlerts() {
+                const isTempCritical = this.currentTemp < this.safeRange.min || this.currentTemp > this.safeRange.max;
+                const now = Date.now();
+                
+                if (isTempCritical && (now - this.lastAlertTime) > 10000 && !this.doorsOpen) {
+                    this.triggerAlert();
+                    this.lastAlertTime = now;
+                }
+            }
+            
+            triggerAlert() {
+                const alert = {
+                    id: Date.now(),
+                    temperature: this.currentTemp,
+                    humidity: this.currentHumidity,
+                    timestamp: new Date(),
+                    type: 'CRITICAL'
+                };
+                
+                this.alerts.unshift(alert);
+                this.updateAlertHistory();
+                
+                // Show alert notification
+                if (confirm(`Critical Temperature Alert!\nTemperature: ${this.currentTemp.toFixed(1)}°C\nSafe Range: 2-8°C`)) {
+                    // User acknowledged
+                }
+            }
+            
+            updateDisplay() {
+                // Update temperature
+                document.getElementById('temp-display').textContent = `${this.currentTemp.toFixed(1)}°C`;
+                const tempStatus = document.getElementById('temp-status');
+                const tempCard = document.getElementById('temp-display').parentElement;
+                
+                const isTempCritical = this.currentTemp < this.safeRange.min || this.currentTemp > this.safeRange.max;
+                
+                if (isTempCritical) {
+                    tempStatus.textContent = 'CRITICAL';
+                    tempStatus.className = 'status critical';
+                    tempCard.className = 'card critical';
+                } else {
+                    tempStatus.textContent = 'Normal';
+                    tempStatus.className = 'status normal';
+                    tempCard.className = 'card normal';
+                }
+                
+                // Update humidity
+                document.getElementById('humidity-display').textContent = `${this.currentHumidity.toFixed(1)}%`;
+                const humidityStatus = document.getElementById('humidity-status');
+                const humidityCard = document.getElementById('humidity-display').parentElement;
+                
+                const isHumiditySafe = this.currentHumidity >= this.humiditySafeRange.min && this.currentHumidity <= this.humiditySafeRange.max;
+                
+                if (!isHumiditySafe && !this.doorsOpen) {
+                    humidityStatus.textContent = 'WARNING';
+                    humidityStatus.className = 'status warning';
+                    humidityCard.className = 'card warning';
+                } else {
+                    humidityStatus.textContent = 'Normal';
+                    humidityStatus.className = 'status normal';
+                    humidityCard.className = 'card normal';
+                }
+                
+                // Update system status
+                document.getElementById('alert-count').textContent = this.alerts.length;
+                document.getElementById('door-status').textContent = this.doorsOpen ? 'Open' : 'Closed';
+            }
+            
+            updateAlertHistory() {
+                const historyDiv = document.getElementById('alert-history');
+                if (this.alerts.length === 0) {
+                    historyDiv.innerHTML = 'No alerts recorded';
+                    return;
+                }
+                
+                historyDiv.innerHTML = this.alerts.slice(0, 5).map(alert => `
+                    <div class="card critical">
+                        <strong>${alert.timestamp.toLocaleString()}</strong><br>
+                        Temperature: ${alert.temperature.toFixed(1)}°C - ${alert.type}
+                    </div>
+                `).join('');
+            }
+            
+            resetAlerts() {
+                this.alerts = [];
+                this.updateAlertHistory();
+                this.updateDisplay();
+            }
+            
+            startUptimeCounter() {
+                this.uptimeInterval = setInterval(() => {
+                    const uptime = Date.now() - this.startTime;
+                    const hours = Math.floor(uptime / 3600000);
+                    const minutes = Math.floor((uptime % 3600000) / 60000);
+                    const seconds = Math.floor((uptime % 60000) / 1000);
+                    
+                    document.getElementById('uptime').textContent = 
+                        `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                }, 1000);
+            }
+            
+            startRandomDoorChanges() {
+                this.doorChangeInterval = setInterval(() => {
+                    if (Math.random() < 0.25) {
+                        this.simulateDoorEntry();
+                    }
+                }, 8000 + Math.random() * 7000);
+            }
+            
+            simulateDoorEntry() {
+                this.doorsOpen = true;
+                this.updateDisplay();
+                
+                const closeDelay = 2000 + Math.random() * 2000;
+                setTimeout(() => {
+                    this.doorsOpen = false;
+                    this.updateDisplay();
+                }, closeDelay);
+            }
+            
+            stopRandomDoorChanges() {
+                if (this.doorChangeInterval) {
+                    clearInterval(this.doorChangeInterval);
+                    this.doorChangeInterval = null;
+                }
+            }
+        }
+        
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            const monitor = new SimpleColdChainMonitor();
+            
+            // Auto-start after 2 seconds
+            setTimeout(() => {
+                monitor.startMonitoring();
+            }, 2000);
+        });
+    </script>
+</body>
+</html>

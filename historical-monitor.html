@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cold Chain Monitor - Historical Data</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .card { background: white; padding: 20px; margin: 10px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .critical { background: #fee; border-left: 4px solid #f00; }
+        .normal { background: #efe; border-left: 4px solid #0f0; }
+        .warning { background: #ffe; border-left: 4px solid #ff0; }
+        .btn { padding: 10px 20px; margin: 5px; border: none; border-radius: 4px; cursor: pointer; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+        .temp-display { font-size: 2em; font-weight: bold; }
+        .status { padding: 5px 10px; border-radius: 15px; color: white; font-size: 0.9em; display: inline-block; }
+        .status.normal { background: #28a745; }
+        .status.critical { background: #dc3545; }
+        .status.warning { background: #ffc107; color: #000; }
+        .chart-container { position: relative; height: 300px; margin: 20px 0; }
+        .alert-item { padding: 10px; margin: 5px 0; border-radius: 4px; border-left: 4px solid #dc3545; background: #fee; }
+        .metric { text-align: center; padding: 15px; }
+        .metric-value { font-size: 1.5em; font-weight: bold; }
+        .metric-label { color: #666; font-size: 0.9em; }
+        .timeline-item { padding: 8px; margin: 3px 0; border-radius: 4px; font-size: 0.9em; }
+        .breach-critical { background: #fee; border-left: 3px solid #f00; }
+        .breach-warning { background: #ffe; border-left: 3px solid #ff0; }
+        .breach-normal { background: #efe; border-left: 3px solid #0f0; }
+        .data-summary { background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 10px 0; }
+        .live-indicator { width: 10px; height: 10px; background: #28a745; border-radius: 50%; display: inline-block; margin-right: 5px; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>Pharmaceutical Cold Chain Monitoring System</h1>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <span class="live-indicator"></span>
+                    <span id="system-status">Live Monitoring Active</span>
+                </div>
+                <div>
+                    <span id="data-period">Historical Data: Last 3 Weeks</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="data-summary">
+            <h3>System Overview</h3>
+            <div class="grid-3">
+                <div class="metric">
+                    <div class="metric-value" id="total-readings">0</div>
+                    <div class="metric-label">Total Readings</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="total-alerts">0</div>
+                    <div class="metric-label">Total Alerts</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="avg-temp">--°C</div>
+                    <div class="metric-label">Avg Temperature</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="grid">
+            <div class="card">
+                <h2>Current Temperature</h2>
+                <div class="temp-display" id="temp-display">--°C</div>
+                <div class="status normal" id="temp-status">Normal</div>
+                <p>Safe Range: 2°C - 8°C</p>
+                <div style="margin-top: 10px;">
+                    <small>Trend: <span id="temp-trend">Stable</span></small>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>Current Humidity</h2>
+                <div class="temp-display" id="humidity-display">--%</div>
+                <div class="status normal" id="humidity-status">Normal</div>
+                <p>Safe Range: 40% - 60%</p>
+                <div style="margin-top: 10px;">
+                    <small>Trend: <span id="humidity-trend">Stable</span></small>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h3>System Metrics</h3>
+            <div class="grid-3">
+                <div class="metric">
+                    <div class="metric-value" id="alert-count">0</div>
+                    <div class="metric-label">Active Alerts</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="uptime">00:00:00</div>
+                    <div class="metric-label">Session Uptime</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="door-status">Closed</div>
+                    <div class="metric-label">Door Status</div>
+                </div>
+            </div>
+            <div style="margin-top: 15px;">
+                <button class="btn btn-primary" id="start-btn">Start Real-time</button>
+                <button class="btn btn-danger" id="reset-btn">Reset Session</button>
+                <button class="btn btn-success" id="export-btn">Export Data</button>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h3>Temperature & Humidity Trends (Last 24 Hours)</h3>
+            <div class="chart-container">
+                <canvas id="trends-chart"></canvas>
+            </div>
+        </div>
+        
+        <div class="grid">
+            <div class="card">
+                <h3>Recent Alerts</h3>
+                <div id="alert-history" style="max-height: 400px; overflow-y: auto;">
+                    <p>Loading historical alerts...</p>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>Breach Timeline</h3>
+                <div id="breach-timeline" style="max-height: 400px; overflow-y: auto;">
+                    <p>Loading breach history...</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h3>Historical Statistics</h3>
+            <div class="grid-3">
+                <div class="metric">
+                    <div class="metric-value" id="critical-events">0</div>
+                    <div class="metric-label">Critical Events</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="avg-humidity">--%</div>
+                    <div class="metric-label">Avg Humidity</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="system-efficiency">--%</div>
+                    <div class="metric-label">System Efficiency</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class HistoricalColdChainMonitor {
+            constructor() {
+                this.currentTemp = 5.0;
+                this.currentHumidity = 50.0;
+                this.isMonitoring = false;
+                this.alerts = [];
+                this.criticalAlerts = [];
+                this.tempHistory = [];
+                this.humidityHistory = [];
+                this.startTime = Date.now();
+                this.updateInterval = null;
+                this.uptimeInterval = null;
+                this.doorsOpen = false;
+                this.doorChangeInterval = null;
+                this.safeRange = { min: 2, max: 8 };
+                this.humiditySafeRange = { min: 40, max: 60 };
+                this.lastAlertTime = 0;
+                this.chart = null;
+                
+                this.init();
+            }
+            
+            init() {
+                this.generateHistoricalData();
+                this.bindEvents();
+                this.setupChart();
+                this.updateDisplay();
+                this.startUptimeCounter();
+                this.updateHistoricalDisplays();
+                
+                // Auto-start real-time monitoring after 3 seconds
+                setTimeout(() => {
+                    this.startMonitoring();
+                }, 3000);
+            }
+            
+            generateHistoricalData() {
+                const now = new Date();
+                const threeWeeksAgo = new Date(now.getTime() - (21 * 24 * 60 * 60 * 1000));
+                
+                let currentTime = new Date(threeWeeksAgo);
+                let temp = 5.0;
+                let humidity = 50.0;
+                let alertId = 1;
+                
+                // Generate data points every 30 minutes for 3 weeks
+                while (currentTime < now) {
+                    // Simulate realistic temperature variations
+                    const hourOfDay = currentTime.getHours();
+                    const dayOfWeek = currentTime.getDay();
+                    
+                    // Base temperature with daily cycles
+                    let baseTemp = 5.0;
+                    if (hourOfDay >= 6 && hourOfDay <= 18) {
+                        baseTemp += 1.5; // Warmer during day
+                    } else {
+                        baseTemp -= 1.0; // Cooler at night
+                    }
+                    
+                    // Add some randomness and trends
+                    const randomInfluence = (Math.random() - 0.5) * 2;
+                    const trendInfluence = Math.sin(currentTime.getTime() / (7 * 24 * 60 * 60 * 1000)) * 0.5;
+                    
+                    temp = baseTemp + randomInfluence + trendInfluence;
+                    
+                    // Simulate occasional breaches (about 5% of the time)
+                    if (Math.random() < 0.05) {
+                        if (Math.random() < 0.5) {
+                            temp = this.safeRange.min - Math.random() * 3;
+                        } else {
+                            temp = this.safeRange.max + Math.random() * 3;
+                        }
+                        
+                        // Create alert for this breach
+                        const alert = {
+                            id: alertId++,
+                            temperature: temp,
+                            humidity: humidity,
+                            timestamp: new Date(currentTime),
+                            type: 'CRITICAL',
+                            duration: Math.random() * 120 + 30 // 30-150 minutes
+                        };
+                        this.alerts.push(alert);
+                        this.criticalAlerts.push(alert);
+                    }
+                    
+                    // Keep within bounds
+                    temp = Math.max(-5, Math.min(15, temp));
+                    
+                    // Humidity simulation
+                    let baseHumidity = 50.0;
+                    if (hourOfDay >= 12 && hourOfDay <= 16) {
+                        baseHumidity += 5; // Higher humidity in afternoon
+                    }
+                    
+                    const humidityRandom = (Math.random() - 0.5) * 10;
+                    humidity = baseHumidity + humidityRandom;
+                    humidity = Math.max(30, Math.min(70, humidity));
+                    
+                    // Store data point
+                    this.tempHistory.push({
+                        temp: temp,
+                        humidity: humidity,
+                        timestamp: new Date(currentTime)
+                    });
+                    
+                    // Move to next time point (30 minutes later)
+                    currentTime = new Date(currentTime.getTime() + 30 * 60 * 1000);
+                }
+                
+                // Set current values to the most recent
+                if (this.tempHistory.length > 0) {
+                    const lastPoint = this.tempHistory[this.tempHistory.length - 1];
+                    this.currentTemp = lastPoint.temp;
+                    this.currentHumidity = lastPoint.humidity;
+                }
+                
+                console.log(`Generated ${this.tempHistory.length} historical data points`);
+                console.log(`Created ${this.alerts.length} historical alerts`);
+            }
+            
+            bindEvents() {
+                document.getElementById('start-btn').addEventListener('click', () => {
+                    if (this.isMonitoring) {
+                        this.stopMonitoring();
+                    } else {
+                        this.startMonitoring();
+                    }
+                });
+                
+                document.getElementById('reset-btn').addEventListener('click', () => {
+                    this.resetSession();
+                });
+                
+                document.getElementById('export-btn').addEventListener('click', () => {
+                    this.exportData();
+                });
+            }
+            
+            setupChart() {
+                const canvas = document.getElementById('trends-chart');
+                const ctx = canvas.getContext('2d');
+                
+                // Get last 24 hours of data
+                const last24Hours = this.getLast24HoursData();
+                
+                // Simple chart implementation
+                this.drawChart(ctx, canvas, last24Hours);
+            }
+            
+            getLast24HoursData() {
+                const now = new Date();
+                const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+                
+                return this.tempHistory.filter(point => point.timestamp >= yesterday);
+            }
+            
+            drawChart(ctx, canvas, data) {
+                const width = canvas.width = canvas.offsetWidth;
+                const height = canvas.height = canvas.offsetHeight;
+                const padding = 40;
+                
+                // Clear canvas
+                ctx.clearRect(0, 0, width, height);
+                
+                if (data.length === 0) return;
+                
+                // Find min/max values
+                const temps = data.map(d => d.temp);
+                const humidities = data.map(d => d.humidity);
+                const minTemp = Math.min(...temps);
+                const maxTemp = Math.max(...temps);
+                const minHumidity = Math.min(...humidities);
+                const maxHumidity = Math.max(...humidities);
+                
+                // Draw axes
+                ctx.strokeStyle = '#ddd';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(padding, padding);
+                ctx.lineTo(padding, height - padding);
+                ctx.lineTo(width - padding, height - padding);
+                ctx.stroke();
+                
+                // Draw temperature line
+                ctx.strokeStyle = '#007bff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                
+                data.forEach((point, i) => {
+                    const x = padding + (i / (data.length - 1)) * (width - 2 * padding);
+                    const y = height - padding - ((point.temp - minTemp) / (maxTemp - minTemp)) * (height - 2 * padding);
+                    
+                    if (i === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+                ctx.stroke();
+                
+                // Draw safe zone
+                const safeZoneTop = height - padding - ((this.safeRange.max - minTemp) / (maxTemp - minTemp)) * (height - 2 * padding);
+                const safeZoneBottom = height - padding - ((this.safeRange.min - minTemp) / (maxTemp - minTemp)) * (height - 2 * padding);
+                
+                ctx.fillStyle = 'rgba(40, 167, 69, 0.1)';
+                ctx.fillRect(padding, safeZoneTop, width - 2 * padding, safeZoneBottom - safeZoneTop);
+                
+                // Labels
+                ctx.fillStyle = '#333';
+                ctx.font = '12px Arial';
+                ctx.fillText('Temperature (°C)', padding, padding - 10);
+                ctx.fillText('Time', width - padding + 10, height - padding);
+            }
+            
+            updateHistoricalDisplays() {
+                // Update summary statistics
+                document.getElementById('total-readings').textContent = this.tempHistory.length.toLocaleString();
+                document.getElementById('total-alerts').textContent = this.alerts.length.toLocaleString();
+                
+                // Calculate averages
+                const avgTemp = this.tempHistory.reduce((sum, p) => sum + p.temp, 0) / this.tempHistory.length;
+                const avgHumidity = this.tempHistory.reduce((sum, p) => sum + p.humidity, 0) / this.tempHistory.length;
+                
+                document.getElementById('avg-temp').textContent = avgTemp.toFixed(1) + '°C';
+                document.getElementById('avg-humidity').textContent = avgHumidity.toFixed(1) + '%';
+                
+                // Count critical events
+                const criticalEvents = this.alerts.filter(a => a.type === 'CRITICAL').length;
+                document.getElementById('critical-events').textContent = criticalEvents.toLocaleString();
+                
+                // Calculate system efficiency (percentage of time in safe range)
+                const safeReadings = this.tempHistory.filter(p => 
+                    p.temp >= this.safeRange.min && p.temp <= this.safeRange.max
+                ).length;
+                const efficiency = (safeReadings / this.tempHistory.length) * 100;
+                document.getElementById('system-efficiency').textContent = efficiency.toFixed(1) + '%';
+                
+                // Update alert history
+                this.updateAlertHistory();
+                
+                // Update breach timeline
+                this.updateBreachTimeline();
+            }
+            
+            updateAlertHistory() {
+                const historyDiv = document.getElementById('alert-history');
+                const recentAlerts = this.alerts.slice(-10).reverse();
+                
+                if (recentAlerts.length === 0) {
+                    historyDiv.innerHTML = '<p>No alerts in historical data</p>';
+                    return;
+                }
+                
+                historyDiv.innerHTML = recentAlerts.map(alert => `
+                    <div class="alert-item">
+                        <strong>${alert.timestamp.toLocaleString()}</strong><br>
+                        Temperature: ${alert.temperature.toFixed(1)}°C - ${alert.type}
+                        ${alert.duration ? `<br>Duration: ${alert.duration.toFixed(0)} min` : ''}
+                    </div>
+                `).join('');
+            }
+            
+            updateBreachTimeline() {
+                const timelineDiv = document.getElementById('breach-timeline');
+                const breaches = this.alerts.filter(a => a.type === 'CRITICAL').slice(-15).reverse();
+                
+                if (breaches.length === 0) {
+                    timelineDiv.innerHTML = '<p>No breaches in historical data</p>';
+                    return;
+                }
+                
+                timelineDiv.innerHTML = breaches.map(breach => {
+                    const severity = breach.temperature < this.safeRange.min ? 'LOW TEMP' : 'HIGH TEMP';
+                    const className = breach.temperature < (this.safeRange.min - 2) || breach.temperature > (this.safeRange.max + 2) ? 'breach-critical' : 'breach-warning';
+                    
+                    return `
+                        <div class="timeline-item ${className}">
+                            <strong>${breach.timestamp.toLocaleDateString()}</strong> ${breach.timestamp.toLocaleTimeString()}<br>
+                            ${severity}: ${breach.temperature.toFixed(1)}°C
+                        </div>
+                    `;
+                }).join('');
+            }
+            
+            startMonitoring() {
+                if (this.isMonitoring) return;
+                
+                this.isMonitoring = true;
+                this.updateInterval = setInterval(() => {
+                    this.simulateRealtimeData();
+                }, 1500);
+                
+                this.startRandomDoorChanges();
+                
+                const btn = document.getElementById('start-btn');
+                btn.textContent = 'Stop Real-time';
+                btn.className = 'btn btn-danger';
+                
+                document.getElementById('system-status').innerHTML = '<span class="live-indicator"></span>Live Monitoring Active';
+            }
+            
+            stopMonitoring() {
+                if (!this.isMonitoring) return;
+                
+                this.isMonitoring = false;
+                clearInterval(this.updateInterval);
+                this.stopRandomDoorChanges();
+                
+                const btn = document.getElementById('start-btn');
+                btn.textContent = 'Start Real-time';
+                btn.className = 'btn btn-primary';
+                
+                document.getElementById('system-status').innerHTML = 'Monitoring Paused';
+            }
+            
+            simulateRealtimeData() {
+                // Store previous values
+                const prevTemp = this.currentTemp;
+                const prevHumidity = this.currentHumidity;
+                
+                // Temperature simulation with realistic variations
+                const hourOfDay = new Date().getHours();
+                let baseTemp = 5.0;
+                if (hourOfDay >= 6 && hourOfDay <= 18) {
+                    baseTemp += 1.5;
+                } else {
+                    baseTemp -= 1.0;
+                }
+                
+                const targetTemp = baseTemp + Math.sin(Date.now() / 5000) * 2;
+                const tempRandomInfluence = (Math.random() - 0.5) * 0.8;
+                const tempDelta = (targetTemp - this.currentTemp) * 0.3 + tempRandomInfluence;
+                this.currentTemp += tempDelta;
+                
+                // Occasional abnormal changes (8% chance)
+                if (Math.random() < 0.08 && !this.doorsOpen) {
+                    const abnormalChange = (Math.random() - 0.5) * 4;
+                    this.currentTemp += abnormalChange;
+                }
+                
+                // Occasionally force critical values (3% chance)
+                if (Math.random() < 0.03) {
+                    if (Math.random() < 0.5) {
+                        this.currentTemp = this.safeRange.min - Math.random() * 2;
+                    } else {
+                        this.currentTemp = this.safeRange.max + Math.random() * 2;
+                    }
+                }
+                
+                // Keep within bounds
+                this.currentTemp = Math.max(-5, Math.min(15, this.currentTemp));
+                
+                // Humidity simulation
+                let baseHumidity = 50.0;
+                if (hourOfDay >= 12 && hourOfDay <= 16) {
+                    baseHumidity += 5;
+                }
+                
+                const targetHumidity = baseHumidity + Math.sin(Date.now() / 4000) * 10;
+                const humidityRandomInfluence = (Math.random() - 0.5) * 3;
+                const humidityDelta = (targetHumidity - this.currentHumidity) * 0.3 + humidityRandomInfluence;
+                this.currentHumidity += humidityDelta;
+                
+                // Occasionally force critical humidity (4% chance)
+                if (Math.random() < 0.04) {
+                    if (Math.random() < 0.5) {
+                        this.currentHumidity = this.humiditySafeRange.min - Math.random() * 10;
+                    } else {
+                        this.currentHumidity = this.humiditySafeRange.max + Math.random() * 10;
+                    }
+                }
+                
+                // Keep within bounds
+                this.currentHumidity = Math.max(20, Math.min(80, this.currentHumidity));
+                
+                // Add to history
+                this.tempHistory.push({
+                    temp: this.currentTemp,
+                    humidity: this.currentHumidity,
+                    timestamp: new Date()
+                });
+                
+                // Limit history size
+                if (this.tempHistory.length > 1000) {
+                    this.tempHistory.shift();
+                }
+                
+                this.checkAlerts();
+                this.updateDisplay();
+                this.updateChart();
+            }
+            
+            checkAlerts() {
+                const isTempCritical = this.currentTemp < this.safeRange.min || this.currentTemp > this.safeRange.max;
+                const now = Date.now();
+                
+                if (isTempCritical && (now - this.lastAlertTime) > 10000 && !this.doorsOpen) {
+                    this.triggerAlert();
+                    this.lastAlertTime = now;
+                }
+            }
+            
+            triggerAlert() {
+                const alert = {
+                    id: Date.now(),
+                    temperature: this.currentTemp,
+                    humidity: this.currentHumidity,
+                    timestamp: new Date(),
+                    type: 'CRITICAL'
+                };
+                
+                this.alerts.push(alert);
+                this.criticalAlerts.push(alert);
+                this.updateAlertHistory();
+                
+                // Show alert notification
+                const message = `Critical Temperature Alert!\n\nTemperature: ${this.currentTemp.toFixed(1)}°C\nSafe Range: 2-8°C\nTime: ${alert.timestamp.toLocaleTimeString()}\n\nThis is a LIVE alert from the monitoring system.`;
+                
+                if (confirm(message)) {
+                    // User acknowledged the alert
+                }
+            }
+            
+            updateDisplay() {
+                // Update temperature
+                document.getElementById('temp-display').textContent = `${this.currentTemp.toFixed(1)}°C`;
+                const tempStatus = document.getElementById('temp-status');
+                const tempCard = document.getElementById('temp-display').parentElement;
+                
+                const isTempCritical = this.currentTemp < this.safeRange.min || this.currentTemp > this.safeRange.max;
+                
+                if (isTempCritical) {
+                    tempStatus.textContent = 'CRITICAL';
+                    tempStatus.className = 'status critical';
+                    tempCard.className = 'card critical';
+                } else {
+                    tempStatus.textContent = 'Normal';
+                    tempStatus.className = 'status normal';
+                    tempCard.className = 'card normal';
+                }
+                
+                // Update humidity
+                document.getElementById('humidity-display').textContent = `${this.currentHumidity.toFixed(1)}%`;
+                const humidityStatus = document.getElementById('humidity-status');
+                const humidityCard = document.getElementById('humidity-display').parentElement;
+                
+                const isHumiditySafe = this.currentHumidity >= this.humiditySafeRange.min && this.currentHumidity <= this.humiditySafeRange.max;
+                
+                if (!isHumiditySafe && !this.doorsOpen) {
+                    humidityStatus.textContent = 'WARNING';
+                    humidityStatus.className = 'status warning';
+                    humidityCard.className = 'card warning';
+                } else {
+                    humidityStatus.textContent = 'Normal';
+                    humidityStatus.className = 'status normal';
+                    humidityCard.className = 'card normal';
+                }
+                
+                // Update system status
+                document.getElementById('alert-count').textContent = this.criticalAlerts.length;
+                document.getElementById('door-status').textContent = this.doorsOpen ? 'Open' : 'Closed';
+                
+                // Update trends
+                if (this.tempHistory.length >= 2) {
+                    const recent = this.tempHistory.slice(-5);
+                    const tempTrend = this.calculateTrend(recent.map(r => r.temp));
+                    const humidityTrend = this.calculateTrend(recent.map(r => r.humidity));
+                    
+                    document.getElementById('temp-trend').textContent = tempTrend;
+                    document.getElementById('humidity-trend').textContent = humidityTrend;
+                }
+            }
+            
+            calculateTrend(values) {
+                if (values.length < 2) return 'Stable';
+                
+                const firstHalf = values.slice(0, Math.floor(values.length / 2));
+                const secondHalf = values.slice(Math.floor(values.length / 2));
+                
+                const firstAvg = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length;
+                const secondAvg = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length;
+                
+                const change = secondAvg - firstAvg;
+                const percentChange = (change / firstAvg) * 100;
+                
+                if (Math.abs(percentChange) < 5) return 'Stable';
+                if (percentChange > 0) return 'Rising';
+                return 'Falling';
+            }
+            
+            updateChart() {
+                const canvas = document.getElementById('trends-chart');
+                const ctx = canvas.getContext('2d');
+                const last24Hours = this.getLast24HoursData();
+                this.drawChart(ctx, canvas, last24Hours);
+            }
+            
+            resetSession() {
+                // Clear current session alerts but keep historical data
+                const historicalCount = this.alerts.length - this.criticalAlerts.length;
+                this.criticalAlerts = [];
+                this.updateAlertHistory();
+                this.updateDisplay();
+                
+                // Reset uptime
+                this.startTime = Date.now();
+            }
+            
+            exportData() {
+                const data = {
+                    summary: {
+                        totalReadings: this.tempHistory.length,
+                        totalAlerts: this.alerts.length,
+                        criticalAlerts: this.criticalAlerts.length,
+                        avgTemperature: this.tempHistory.reduce((sum, p) => sum + p.temp, 0) / this.tempHistory.length,
+                        avgHumidity: this.tempHistory.reduce((sum, p) => sum + p.humidity, 0) / this.tempHistory.length
+                    },
+                    recentData: this.tempHistory.slice(-100),
+                    alerts: this.alerts.slice(-20),
+                    exportTime: new Date().toISOString()
+                };
+                
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `coldchain-data-${new Date().toISOString().split('T')[0]}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+            }
+            
+            startUptimeCounter() {
+                this.uptimeInterval = setInterval(() => {
+                    const uptime = Date.now() - this.startTime;
+                    const hours = Math.floor(uptime / 3600000);
+                    const minutes = Math.floor((uptime % 3600000) / 60000);
+                    const seconds = Math.floor((uptime % 60000) / 1000);
+                    
+                    document.getElementById('uptime').textContent = 
+                        `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                }, 1000);
+            }
+            
+            startRandomDoorChanges() {
+                this.doorChangeInterval = setInterval(() => {
+                    if (Math.random() < 0.2) {
+                        this.simulateDoorEntry();
+                    }
+                }, 10000 + Math.random() * 10000);
+            }
+            
+            simulateDoorEntry() {
+                this.doorsOpen = true;
+                this.updateDisplay();
+                
+                const closeDelay = 2000 + Math.random() * 2000;
+                setTimeout(() => {
+                    this.doorsOpen = false;
+                    this.updateDisplay();
+                }, closeDelay);
+            }
+            
+            stopRandomDoorChanges() {
+                if (this.doorChangeInterval) {
+                    clearInterval(this.doorChangeInterval);
+                    this.doorChangeInterval = null;
+                }
+            }
+        }
+        
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            const monitor = new HistoricalColdChainMonitor();
+        });
+    </script>
+</body>
+</html>

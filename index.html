@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pharmaceutical Cold Chain Monitoring System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @keyframes pulse-red {
+            0%, 100% { background-color: rgb(239 68 68); }
+            50% { background-color: rgb(220 38 38); }
+        }
+        .critical-pulse {
+            animation: pulse-red 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        .toast {
+            animation: slideIn 0.3s ease-out;
+        }
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        @keyframes modalBounce {
+            0% { transform: scale(0.9); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .modal-enter {
+            animation: modalBounce 0.3s ease-out;
+        }
+        @keyframes alertGlow {
+            0%, 100% { box-shadow: 0 0 10px rgba(239, 68, 68, 0.3); }
+            50% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.5); }
+        }
+        .alert-glow {
+            animation: alertGlow 3s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <i data-lucide="thermometer" class="w-8 h-8 text-blue-600"></i>
+                    <h1 class="text-2xl font-bold text-gray-900">Cold Chain Monitoring System</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span id="connectionStatus" class="flex items-center space-x-2">
+                        <div class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                        <span class="text-sm text-gray-600">Connected</span>
+                    </span>
+                    <span id="lastUpdate" class="text-sm text-gray-500">Last: --:--:--</span>
+                    <span id="historicalStatus" class="text-sm text-blue-600 font-medium">Loading historical data...</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Temperature & Humidity Display Section -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            <!-- Current Temperature -->
+            <div class="lg:col-span-1">
+                <div id="temperatureCard" class="bg-white rounded-lg shadow-lg p-6 transition-all duration-300">
+                    <div class="text-center">
+                        <h2 class="text-lg font-semibold text-gray-700 mb-4">Current Temperature</h2>
+                        <div class="relative">
+                            <div id="temperatureDisplay" class="text-4xl font-bold text-gray-900 mb-2">
+                                --°Celsius
+                            </div>
+                            <div id="statusIndicator" class="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-gray-100 text-gray-700">
+                                <div class="w-2 h-2 rounded-full mr-2 bg-gray-400"></div>
+                                Initializing
+                            </div>
+                        </div>
+                        <div class="mt-4 text-sm text-gray-500">
+                            Safe Range: 2°Celsius - 8°Celsius
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Current Humidity -->
+            <div class="lg:col-span-1">
+                <div id="humidityCard" class="bg-white rounded-lg shadow-lg p-6 transition-all duration-300">
+                    <div class="text-center">
+                        <h2 class="text-lg font-semibold text-gray-700 mb-4">Current Humidity</h2>
+                        <div class="relative">
+                            <div id="humidityDisplay" class="text-4xl font-bold text-gray-900 mb-2">
+                                --%
+                            </div>
+                            <div id="humidityStatusIndicator" class="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-gray-100 text-gray-700">
+                                <div class="w-2 h-2 rounded-full mr-2 bg-gray-400"></div>
+                                Initializing
+                            </div>
+                        </div>
+                        <div class="mt-4 text-sm text-gray-500">
+                            Safe Range: 40% - 60%
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Metrics -->
+            <div class="lg:col-span-3">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <!-- Alert Counter -->
+                    <div class="bg-white rounded-lg shadow p-6">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i data-lucide="alert-triangle" class="w-8 h-8 text-red-500"></i>
+                            </div>
+                            <div class="ml-4">
+                                <p class="text-sm font-medium text-gray-600">Total Alerts</p>
+                                <p id="alertCount" class="text-2xl font-bold text-gray-900">0</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Uptime -->
+                    <div class="bg-white rounded-lg shadow p-6">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i data-lucide="clock" class="w-8 h-8 text-blue-500"></i>
+                            </div>
+                            <div class="ml-4">
+                                <p class="text-sm font-medium text-gray-600">Uptime</p>
+                                <p id="uptime" class="text-2xl font-bold text-gray-900">00:00:00</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Current Status -->
+                    <div class="bg-white rounded-lg shadow p-6">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i data-lucide="activity" class="w-8 h-8 text-green-500"></i>
+                            </div>
+                            <div class="ml-4">
+                                <p class="text-sm font-medium text-gray-600">System Status</p>
+                                <p id="systemStatus" class="text-lg font-bold text-green-600">Normal</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Doors Status -->
+                <div class="mt-4 mb-4 p-4 bg-gray-50 rounded-lg">
+                    <h3 class="text-sm font-semibold text-gray-700 mb-3">Doors Status</h3>
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                            <i data-lucide="shield-check" class="w-4 h-4 text-gray-500" id="accessIcon"></i>
+                            <span class="text-sm text-gray-600">Doors:</span>
+                            <button id="accessToggle" class="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium transition-colors" disabled>
+                                Closed
+                            </button>
+                        </div>
+                        <div class="text-xs text-gray-500">
+                            <i data-lucide="info" class="w-3 h-3 inline mr-1"></i>
+                            Abnormal changes ignored when open
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Controls -->
+                <div class="mt-4 flex space-x-4">
+                    <button id="resetAlerts" class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center space-x-2">
+                        <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                        <span>Reset Alerts</span>
+                    </button>
+                    <button id="toggleMonitoring" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2">
+                        <i data-lucide="play" class="w-4 h-4"></i>
+                        <span>Start Monitoring</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ML Dashboard Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- Temperature & Humidity Chart -->
+            <section class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-lg font-semibold text-gray-700 mb-4">Temperature & Humidity Trends</h2>
+                <div class="relative h-64">
+                    <canvas id="temperatureChart"></canvas>
+                </div>
+            </section>
+
+            <!-- Anomaly Score Chart -->
+            <section class="bg-white rounded-lg shadow-lg p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-gray-700">Anomaly Score Trend</h2>
+                    <span class="text-xs text-gray-500">ML: Isolation Forest</span>
+                </div>
+                <div class="relative h-64">
+                    <canvas id="anomalyChart"></canvas>
+                </div>
+                <div class="mt-3 flex items-center space-x-4 text-xs">
+                    <div class="flex items-center space-x-1">
+                        <div class="w-3 h-3 bg-red-500 rounded"></div>
+                        <span>Critical (>0.6)</span>
+                    </div>
+                    <div class="flex items-center space-x-1">
+                        <div class="w-3 h-3 bg-yellow-500 rounded"></div>
+                        <span>Warning (0.4-0.6)</span>
+                    </div>
+                    <div class="flex items-center space-x-1">
+                        <div class="w-3 h-3 bg-green-500 rounded"></div>
+                        <span>Normal (<0.4)</span>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Severity & Alerts Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- Alert Panel with Severity -->
+            <section class="bg-white rounded-lg shadow-lg p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-gray-700">Intelligent Alert Panel</h2>
+                    <span id="unackedAlertCount" class="px-2 py-1 bg-red-100 text-red-800 text-xs font-semibold rounded-full">0</span>
+                </div>
+                <div id="alertPanel" class="space-y-3 max-h-80 overflow-y-auto">
+                    <p class="text-gray-500 text-center py-4">No active alerts</p>
+                </div>
+            </section>
+
+            <!-- Breach Timeline -->
+            <section class="bg-white rounded-lg shadow-lg p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-gray-700">Breach Timeline</h2>
+                    <span class="text-xs text-gray-500">Last 24 hours</span>
+                </div>
+                <div id="breachTimeline" class="space-y-3 max-h-80 overflow-y-auto">
+                    <p class="text-gray-500 text-center py-4">No breaches recorded</p>
+                </div>
+            </section>
+        </div>
+
+        <!-- Evaluation Metrics & Model Config -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- Evaluation Metrics -->
+            <section class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-lg font-semibold text-gray-700 mb-4">ML Evaluation Metrics</h2>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-gray-50 p-3 rounded">
+                        <p class="text-xs text-gray-600">Recall</p>
+                        <p id="metricRecall" class="text-xl font-bold text-blue-600">--%</p>
+                    </div>
+                    <div class="bg-gray-50 p-3 rounded">
+                        <p class="text-xs text-gray-600">Precision</p>
+                        <p id="metricPrecision" class="text-xl font-bold text-blue-600">--%</p>
+                    </div>
+                    <div class="bg-gray-50 p-3 rounded">
+                        <p class="text-xs text-gray-600">False Alarm Rate</p>
+                        <p id="metricFalseAlarm" class="text-xl font-bold text-yellow-600">--/1000</p>
+                    </div>
+                    <div class="bg-gray-50 p-3 rounded">
+                        <p class="text-xs text-gray-600">Detection Accuracy</p>
+                        <p id="metricF1" class="text-xl font-bold text-green-600">--%</p>
+                    </div>
+                </div>
+                <div class="mt-4 text-xs text-gray-500">
+                    <i data-lucide="info" class="w-3 h-3 inline mr-1"></i>
+                    Based on last <span id="metricWindowSize">0</span> readings
+                </div>
+            </section>
+        </div>
+
+        <!-- Zone-Based Drug Impact Analysis -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            <!-- Zone Impact Panel -->
+            <section class="lg:col-span-2 bg-white rounded-lg shadow-lg p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-gray-700">Zone Impact Analysis</h2>
+                    <span class="text-xs text-gray-500">Real-time drug impact assessment</span>
+                </div>
+                <div id="zoneImpactPanel" class="space-y-2 max-h-96 overflow-y-auto">
+                    <p class="text-gray-500 text-center py-4">No zone impacts detected</p>
+                </div>
+            </section>
+
+            <!-- Quarantine Recommendation -->
+            <section class="bg-white rounded-lg shadow-lg p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-gray-700">Quarantine Status</h2>
+                    <i data-lucide="shield-check" class="w-5 h-5 text-gray-500"></i>
+                </div>
+                <div id="quarantineDisplay">
+                    <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                        <div class="flex items-center">
+                            <i data-lucide="check-circle" class="w-6 h-6 text-green-500 mr-3"></i>
+                            <div>
+                                <h4 class="text-green-800 font-semibold">All Zones Safe</h4>
+                                <p class="text-green-600 text-sm">No quarantine actions required at this time.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Zone Impact Chart & Drug Details -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- Zone Impact Chart -->
+            <section class="bg-white rounded-lg shadow-lg p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-gray-700">Zone Impact Scores</h2>
+                    <span class="text-xs text-gray-500">Impact > 50 = Quarantine</span>
+                </div>
+                <div class="relative h-64">
+                    <canvas id="zoneImpactChart"></canvas>
+                </div>
+                <div class="mt-3 flex items-center space-x-4 text-xs">
+                    <div class="flex items-center space-x-1">
+                        <div class="w-3 h-3 bg-red-500 rounded"></div>
+                        <span>Quarantine (>50)</span>
+                    </div>
+                    <div class="flex items-center space-x-1">
+                        <div class="w-3 h-3 bg-yellow-500 rounded"></div>
+                        <span>Monitor (20-50)</span>
+                    </div>
+                    <div class="flex items-center space-x-1">
+                        <div class="w-3 h-3 bg-green-500 rounded"></div>
+                        <span>Safe (<20)</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Drug Impact Table -->
+            <section class="bg-white rounded-lg shadow-lg p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-gray-700">Drug Impact Details</h2>
+                    <span class="text-xs text-gray-500">Top 5 affected zones</span>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Zone</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Drugs</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Impact</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="drugImpactTable" class="bg-white divide-y divide-gray-200">
+                            <tr>
+                                <td colspan="5" class="px-4 py-4 text-center text-gray-500">No drug impacts detected</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- Alert History -->
+        <section class="bg-white rounded-lg shadow-lg p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-semibold text-gray-700">Alert History</h2>
+                <span class="text-sm text-gray-500">Showing recent critical events</span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Values</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sensor Type</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
+                        </tr>
+                    </thead>
+                    <tbody id="alertHistory" class="bg-white divide-y divide-gray-200">
+                        <tr>
+                            <td colspan="4" class="px-6 py-4 text-center text-gray-500">No alerts recorded</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <!-- Alert Modal Container -->
+    <div id="alertModal" class="fixed inset-0 z-50 hidden">
+        <div class="fixed inset-0 bg-black bg-opacity-50"></div>
+        <div class="fixed inset-0 flex items-center justify-center p-4">
+            <div class="bg-white rounded-xl shadow-2xl max-w-md w-full transform transition-all duration-300 scale-95 opacity-0" id="alertContent">
+                <div class="p-6">
+                    <div class="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-red-100 rounded-full">
+                        <i data-lucide="alert-triangle" class="w-8 h-8 text-red-600 animate-pulse"></i>
+                    </div>
+                    <h3 class="text-2xl font-bold text-center text-red-600 mb-2">Critical Temperature Warning!</h3>
+                    <div class="text-center mb-6">
+                        <p class="text-3xl font-bold text-gray-900 mb-1" id="alertTemp">--°Celsius</p>
+                        <p class="text-sm text-gray-600" id="alertTime">--:--:--</p>
+                    </div>
+                    <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+                        <p class="text-sm text-red-800 text-center">
+                            <strong id="alertRange">Safe Range: 2°Celsius - 8°Celsius</strong><br>
+                            <span id="alertMessage">Temperature is outside the safe pharmaceutical range!</span>
+                        </p>
+                    </div>
+                    <button onclick="closeAlert()" class="w-full bg-red-600 text-white py-3 px-4 rounded-lg font-semibold hover:bg-red-700 transition-colors duration-200">
+                        Acknowledge Alert
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

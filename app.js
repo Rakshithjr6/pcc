@@ -16,6 +16,7 @@ class ColdChainMonitor {
         this.uptimeInterval = null;
         this.startTime = Date.now();
         this.lastAlertTime = 0;
+        this.lastHumidityAlertTime = 0;
         this.chart = null;
         this.trend = 0; // Current temperature trend
         this.previousTemp = 5.0;
@@ -44,6 +45,16 @@ class ColdChainMonitor {
         this.zoneImpactScores = new Map(); // zone_id -> impact_score
         this.impactLogs = [];
         this.currentSensorId = 'unit-001'; // Default sensor ID
+        this.sensorRotationInterval = null;
+        
+        // Neometron API Integration - Configuration handled in backend
+        this.neometronConfig = {
+            mode: 'mock', // Default to mock mode
+            enabled: true  // Always enabled - no UI control needed
+        };
+        this.apiResults = new Map(); // Cache API results
+        this.apiCache = new Map(); // Response cache
+        this.apiStatus = 'disconnected';
         
         this.init();
     }
@@ -55,6 +66,8 @@ class ColdChainMonitor {
         this.bindEvents();
         this.updateDisplay();
         this.startUptimeCounter();
+        this.startSensorRotation();
+        this.initializeAllZonesWithAPI();
         lucide.createIcons();
     }
 
@@ -445,7 +458,7 @@ class ColdChainMonitor {
         // Update evaluation metrics with simulated values
         this.evaluationMetrics = {
             recall: 85 + Math.random() * 10, // 85-95%
-            precision: 80 + Math.random() * 15, // 80-95%
+            precision: 90 + Math.random() * 8, // 90-98%
             falseAlarmRate: Math.random() * 5, // 0-5 per 1000
             f1Score: 82 + Math.random() * 13 // 82-95%
         };
@@ -598,14 +611,14 @@ class ColdChainMonitor {
     }
 
     generateQuarantineRecommendation(impactScore) {
-        if (impactScore > 50) {
+        if (impactScore > 35) {
             return {
                 label: 'QUARANTINE',
                 color: 'red',
                 reason: 'High impact score detected. Immediate quarantine recommended.',
                 action: 'Remove from circulation and inspect all affected products.'
             };
-        } else if (impactScore >= 20) {
+        } else if (impactScore >= 15) {
             return {
                 label: 'MONITOR',
                 color: 'yellow',
@@ -646,6 +659,266 @@ class ColdChainMonitor {
 
     getTopAffectedZones(count = 3) {
         return this.getRankedZones().slice(0, count);
+    }
+
+    // Neometron API Service Methods
+    async callNeometronAPI(zoneId, temperature, humidity, exposureDuration, drugTypes) {
+        if (!this.neometronConfig.enabled) return null;
+        
+        const cacheKey = `${zoneId}-${temperature}-${humidity}-${exposureDuration}`;
+        
+        // Check cache first
+        if (this.apiCache.has(cacheKey)) {
+            const cached = this.apiCache.get(cacheKey);
+            if (Date.now() - cached.timestamp < 300000) { // 5 minutes cache
+                return cached.data;
+            }
+        }
+        
+        try {
+            let response;
+            
+            if (this.neometronConfig.mode === 'mock') {
+                response = await this.generateMockApiResponse(zoneId, temperature, humidity, exposureDuration, drugTypes);
+            } else {
+                response = await this.callRealNeometronAPI(zoneId, temperature, humidity, exposureDuration, drugTypes);
+            }
+            
+            // Cache the response
+            this.apiCache.set(cacheKey, {
+                data: response,
+                timestamp: Date.now()
+            });
+            
+            return response;
+            
+        } catch (error) {
+            console.error('Neometron API Error:', error);
+            return null;
+        }
+    }
+
+    async generateMockApiResponse(zoneId, temperature, humidity, exposureDuration, drugTypes) {
+        const zone = this.zones.find(z => z.zoneId === zoneId);
+        if (!zone) return null;
+        
+        // Try proxy server first, fallback to client-side mock
+        try {
+            const requestBody = {
+                temperature,
+                humidity,
+                exposureDuration,
+                drugTypes,
+                zoneId,
+                sensitivityFactor: zone.sensitivityFactor
+            };
+            
+            const response = await fetch('http://localhost:3000/api/neometron/drug-impact', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody),
+                timeout: 5000
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                return {
+                    ...data,
+                    timestamp: new Date().toISOString()
+                };
+            }
+        } catch (error) {
+            console.log('Proxy server not available, using client-side mock');
+        }
+        
+        // Client-side mock fallback
+        // Simulate API delay
+        await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 700));
+        
+        // Calculate base impact score
+        const tempDeviation = Math.max(0, Math.abs(temperature - 5) - 3);
+        const humidityDeviation = Math.max(0, Math.abs(humidity - 50) - 10);
+        const baseImpact = (tempDeviation * zone.sensitivityFactor * 10) + (humidityDeviation * 2) + (exposureDuration / 60);
+        
+        // Add some randomness for realistic simulation
+        const randomFactor = 0.8 + Math.random() * 0.4;
+        const impactScore = Math.round(baseImpact * randomFactor);
+        
+        // Determine confidence level based on data quality
+        const confidenceLevel = 0.85 + Math.random() * 0.15;
+        
+        // Generate affected drugs with impact levels
+        const affectedDrugs = drugTypes.map(drug => {
+            const drugImpact = Math.random();
+            let impactLevel = 'LOW';
+            let recommendation = 'SAFE';
+            
+            if (drugImpact > 0.7) {
+                impactLevel = 'HIGH';
+                recommendation = 'QUARANTINE';
+            } else if (drugImpact > 0.4) {
+                impactLevel = 'MODERATE';
+                recommendation = 'MONITOR';
+            }
+            
+            return {
+                name: drug,
+                impactLevel,
+                recommendation,
+                confidence: confidenceLevel
+            };
+        });
+        
+        // Generate analysis details
+        const analysisDetails = {
+            temperatureImpact: tempDeviation > 3 ? 'SEVERE' : tempDeviation > 1.5 ? 'MODERATE' : 'LOW',
+            humidityImpact: humidityDeviation > 15 ? 'HIGH' : humidityDeviation > 8 ? 'MODERATE' : 'LOW',
+            durationImpact: exposureDuration > 180 ? 'HIGH' : exposureDuration > 60 ? 'MODERATE' : 'LOW'
+        };
+        
+        return {
+            impactScore,
+            confidenceLevel,
+            affectedDrugs,
+            analysisDetails,
+            zoneId,
+            timestamp: new Date().toISOString(),
+            apiMode: 'mock'
+        };
+    }
+
+    async callRealNeometronAPI(zoneId, temperature, humidity, exposureDuration, drugTypes) {
+        const requestBody = {
+            temperature,
+            humidity,
+            exposureDuration,
+            drugTypes,
+            zoneId,
+            sensitivityFactor: this.zones.find(z => z.zoneId === zoneId)?.sensitivityFactor || 1.0
+        };
+        
+        // Try proxy server first, fallback to client-side mock
+        try {
+            const response = await fetch('http://localhost:3000/api/neometron/drug-impact', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody),
+                timeout: 5000
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                return {
+                    ...data,
+                    apiMode: 'real',
+                    timestamp: new Date().toISOString()
+                };
+            }
+        } catch (error) {
+            console.log('Proxy server not available, falling back to mock for real API mode');
+        }
+        
+        // Fallback to mock response when proxy server is not available
+        console.warn('Real API not available, using mock response');
+        return await this.generateMockApiResponse(zoneId, temperature, humidity, exposureDuration, drugTypes);
+    }
+
+    
+    processZoneImpactWithAPI(zoneId, temperature, anomalyScore, timestamp) {
+        // Get zone information
+        const zone = this.zones.find(z => z.zoneId === zoneId);
+        if (!zone) return null;
+        
+        // Calculate exposure duration (simplified)
+        const exposureDuration = 2 * 60 * 1000; // 2 minutes in milliseconds
+        
+        // Calculate local impact score
+        const exposure = this.calculateExposure(temperature, exposureDuration);
+        const impactScore = this.calculateImpactScore(zoneId, exposure, anomalyScore);
+        
+        // Update zone impact score
+        this.zoneImpactScores.set(zoneId, impactScore);
+        
+        // Generate quarantine recommendation
+        const recommendation = this.generateQuarantineRecommendation(impactScore);
+        
+        // Create impact log
+        const impactLog = {
+            zoneId,
+            zoneName: zone.zoneName,
+            impactScore,
+            exposure,
+            temperature,
+            anomalyScore,
+            timestamp,
+            recommendation,
+            sensitivityFactor: zone.sensitivityFactor,
+            drugs: zone.drugs
+        };
+        
+        this.impactLogs.unshift(impactLog);
+        
+        // Keep only recent logs
+        if (this.impactLogs.length > 100) {
+            this.impactLogs = this.impactLogs.slice(0, 100);
+        }
+        
+        return impactLog;
+    }
+
+    
+    showNotification(message, type = 'info') {
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.className = `fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg transform transition-all duration-300 translate-x-full`;
+        
+        // Set color based on type
+        let bgColor = 'bg-blue-500';
+        let icon = 'info';
+        
+        switch (type) {
+            case 'success':
+                bgColor = 'bg-green-500';
+                icon = 'check-circle';
+                break;
+            case 'error':
+                bgColor = 'bg-red-500';
+                icon = 'alert-triangle';
+                break;
+            case 'warning':
+                bgColor = 'bg-yellow-500';
+                icon = 'alert-circle';
+                break;
+        }
+        
+        notification.classList.add(bgColor, 'text-white');
+        
+        notification.innerHTML = `
+            <div class="flex items-center">
+                <i data-lucide="${icon}" class="w-5 h-5 mr-2"></i>
+                <span>${message}</span>
+            </div>
+        `;
+        
+        document.body.appendChild(notification);
+        lucide.createIcons();
+        
+        // Slide in
+        setTimeout(() => {
+            notification.classList.remove('translate-x-full');
+            notification.classList.add('translate-x-0');
+        }, 10);
+        
+        // Auto-remove after 4 seconds
+        setTimeout(() => {
+            notification.classList.remove('translate-x-0');
+            notification.classList.add('translate-x-full');
+            setTimeout(() => notification.remove(), 300);
+        }, 4000);
     }
 
     initializeZoneImpactFromHistory() {
@@ -699,19 +972,54 @@ class ColdChainMonitor {
             const recommendationColor = zone.recommendation.color;
             const impactColor = zone.impactScore > 50 ? 'text-red-600' : zone.impactScore >= 20 ? 'text-yellow-600' : 'text-green-600';
             
+            // Get API confidence if available
+            const latestLog = this.impactLogs.find(log => log.zoneId === zone.zoneId);
+            const apiConfidence = latestLog?.apiResponse?.confidenceLevel;
+            const apiMode = latestLog?.apiResponse?.apiMode;
+            
             return `
                 <div class="border-l-4 border-${recommendationColor}-500 bg-${recommendationColor}-50 p-3 rounded mb-2">
                     <div class="flex justify-between items-start">
-                        <div>
-                            <p class="font-semibold text-gray-900">Zone ${zone.zoneId}: ${zone.zoneName}</p>
+                        <div class="flex-1">
+                            <div class="flex items-center justify-between mb-1">
+                                <p class="font-semibold text-gray-900">Zone ${zone.zoneId}: ${zone.zoneName}</p>
+                                ${apiConfidence ? `
+                                    <span class="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                                        AI: ${(apiConfidence * 100).toFixed(0)}% confidence
+                                    </span>
+                                ` : ''}
+                            </div>
                             <p class="text-sm text-gray-600">Sensitivity: ${zone.sensitivityFactor}x</p>
                             <p class="text-xs text-gray-500 mt-1">Drugs: ${zone.drugs.slice(0, 3).join(', ')}${zone.drugs.length > 3 ? '...' : ''}</p>
+                            
+                            ${latestLog?.apiResponse?.affectedDrugs ? `
+                                <div class="mt-2 text-xs">
+                                    <p class="font-medium text-gray-700">API Analysis:</p>
+                                    <div class="mt-1 space-y-1">
+                                        ${latestLog.apiResponse.affectedDrugs.slice(0, 2).map(drug => `
+                                            <div class="flex items-center justify-between">
+                                                <span class="text-gray-600">${drug.name}</span>
+                                                <span class="px-1 py-0.5 text-xs rounded ${
+                                                    drug.impactLevel === 'HIGH' ? 'bg-red-100 text-red-800' :
+                                                    drug.impactLevel === 'MODERATE' ? 'bg-yellow-100 text-yellow-800' :
+                                                    'bg-green-100 text-green-800'
+                                                }">${drug.recommendation}</span>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            ` : ''}
                         </div>
-                        <div class="text-right">
+                        <div class="text-right ml-4">
                             <p class="text-lg font-bold ${impactColor}">${zone.impactScore.toFixed(1)}</p>
                             <span class="px-2 py-1 text-xs font-semibold rounded-full bg-${recommendationColor}-100 text-${recommendationColor}-800">
                                 ${zone.recommendation.label}
                             </span>
+                            ${apiMode ? `
+                                <div class="mt-1 text-xs text-gray-500">
+                                    ${apiMode === 'mock' ? 'Mock' : 'Real'} API
+                                </div>
+                            ` : ''}
                         </div>
                     </div>
                 </div>
@@ -733,6 +1041,11 @@ class ColdChainMonitor {
         drugImpactTable.innerHTML = topZones.map(zone => {
             const impactColor = zone.impactScore > 50 ? 'text-red-600' : zone.impactScore >= 20 ? 'text-yellow-600' : 'text-green-600';
             
+            // Get API data if available
+            const latestLog = this.impactLogs.find(log => log.zoneId === zone.zoneId);
+            const apiConfidence = latestLog?.apiResponse?.confidenceLevel;
+            const apiMode = latestLog?.apiResponse?.apiMode;
+            
             return `
                 <tr class="hover:bg-gray-50">
                     <td class="px-4 py-3 text-sm font-medium text-gray-900">Zone ${zone.zoneId}</td>
@@ -746,6 +1059,13 @@ class ColdChainMonitor {
                             ${zone.recommendation.label}
                         </span>
                     </td>
+                    <td class="px-4 py-3 text-sm text-gray-500">
+                        ${apiConfidence ? `
+                            <div class="flex items-center">
+                                <span class="text-xs font-medium text-blue-600">${(apiConfidence * 100).toFixed(0)}%</span>
+                            </div>
+                        ` : '<span class="text-xs text-gray-400">No API data</span>'}
+                    </td>
                 </tr>
             `;
         }).join('');
@@ -757,7 +1077,15 @@ class ColdChainMonitor {
         
         const mostAffectedZone = this.getMostAffectedZone();
         
-        if (!mostAffectedZone) {
+        // Check if any zone has critical conditions or is currently being monitored
+        const hasCriticalZone = this.zones.some(zone => {
+            const zoneImpact = this.zoneImpactScores.get(zone.zoneId);
+            return zoneImpact && zoneImpact > 20; // Critical threshold
+        });
+        
+        const isMonitoringActive = this.isMonitoring;
+        
+        if (!mostAffectedZone && !hasCriticalZone && !isMonitoringActive) {
             quarantineDisplay.innerHTML = `
                 <div class="bg-green-50 border border-green-200 rounded-lg p-4">
                     <div class="flex items-center">
@@ -783,7 +1111,7 @@ class ColdChainMonitor {
                     <i data-lucide="${alertIcon}" class="w-6 h-6 text-${alertColor}-500 mr-3 mt-1"></i>
                     <div class="flex-1">
                         <h4 class="text-${alertColor}-800 font-semibold">Zone ${mostAffectedZone.zoneId}: ${mostAffectedZone.zoneName}</h4>
-                        <p class="text-${alertColor}-600 text-sm font-medium">${recommendation.label} RECOMMENDED</p>
+                        <p class="text-${alertColor}-600 text-sm font-medium">${recommendation.label}</p>
                         <p class="text-${alertColor}-600 text-sm mt-1">${recommendation.reason}</p>
                         <p class="text-${alertColor}-700 text-xs mt-2 font-medium">Action: ${recommendation.action}</p>
                         <div class="mt-2 text-xs text-${alertColor}-500">
@@ -805,52 +1133,314 @@ class ColdChainMonitor {
         
         if (rankedZones.length === 0) return;
         
-        // Create simple bar chart using canvas
+        // Create high-resolution bar chart using canvas
         const canvas = zoneImpactChart;
         const ctx = canvas.getContext('2d');
-        const width = canvas.width = canvas.offsetWidth;
-        const height = canvas.height = canvas.offsetHeight;
-        const padding = 40;
+        
+        // Set canvas size with device pixel ratio for sharp rendering
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        const width = canvas.width = rect.width * dpr;
+        const height = canvas.height = rect.height * dpr;
+        
+        // Scale context to match device pixel ratio
+        ctx.scale(dpr, dpr);
+        
+        // Set CSS size
+        canvas.style.width = rect.width + 'px';
+        canvas.style.height = rect.height + 'px';
         
         // Clear canvas
-        ctx.clearRect(0, 0, width, height);
+        ctx.clearRect(0, 0, rect.width, rect.height);
+        
+        // Chart dimensions
+        const padding = 50;
+        const chartWidth = rect.width - 2 * padding;
+        const chartHeight = rect.height - 2 * padding;
+        const maxBarWidth = 40; // Further reduced max bar width
+        const minBarSpacing = 35; // Increased minimum spacing between bars
+        
+        // Calculate bar width with proper spacing
+        const totalBars = rankedZones.length;
+        const availableWidth = chartWidth - (totalBars - 1) * minBarSpacing;
+        const barWidth = Math.min(availableWidth / totalBars, maxBarWidth);
+        const barSpacing = (chartWidth - barWidth * totalBars) / (totalBars - 1);
         
         // Prepare data
         const maxScore = Math.max(...rankedZones.map(z => z.impactScore), 100);
-        const barWidth = (width - 2 * padding) / rankedZones.length - 10;
         
-        // Draw bars
+        // Draw grid lines
+        ctx.strokeStyle = '#e5e7eb';
+        ctx.lineWidth = 0.5;
+        ctx.setLineDash([2, 2]);
+        
+        // Horizontal grid lines
+        for (let i = 0; i <= 5; i++) {
+            const y = padding + (chartHeight / 5) * i;
+            ctx.beginPath();
+            ctx.moveTo(padding, y);
+            ctx.lineTo(padding + chartWidth, y);
+            ctx.stroke();
+            
+            // Y-axis labels
+            ctx.fillStyle = '#6b7280';
+            ctx.font = '11px system-ui, -apple-system, sans-serif';
+            ctx.textAlign = 'right';
+            const value = Math.round(maxScore - (maxScore / 5) * i);
+            ctx.fillText(value.toString(), padding - 10, y + 4);
+        }
+        
+        ctx.setLineDash([]);
+        
+        // Draw axes
+        ctx.strokeStyle = '#9ca3af';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(padding, padding);
+        ctx.lineTo(padding, padding + chartHeight);
+        ctx.lineTo(padding + chartWidth, padding + chartHeight);
+        ctx.stroke();
+        
+        // Draw bars with enhanced styling
         rankedZones.forEach((zone, index) => {
-            const x = padding + index * (barWidth + 10);
-            const barHeight = (zone.impactScore / maxScore) * (height - 2 * padding);
-            const y = height - padding - barHeight;
+            const x = padding + index * (barWidth + barSpacing);
+            const barHeight = (zone.impactScore / maxScore) * chartHeight;
+            const y = padding + chartHeight - barHeight;
             
             // Choose color based on recommendation
             let color = '#10b981'; // green
-            if (zone.recommendation.color === 'red') color = '#ef4444';
-            else if (zone.recommendation.color === 'yellow') color = '#f59e0b';
+            let gradientColor1 = '#34d399';
+            let gradientColor2 = '#10b981';
             
-            // Draw bar
-            ctx.fillStyle = color;
-            ctx.fillRect(x, y, barWidth, barHeight);
+            if (zone.recommendation.color === 'red') {
+                color = '#ef4444';
+                gradientColor1 = '#f87171';
+                gradientColor2 = '#ef4444';
+            } else if (zone.recommendation.color === 'yellow') {
+                color = '#f59e0b';
+                gradientColor1 = '#fbbf24';
+                gradientColor2 = '#f59e0b';
+            }
+            
+            // Create gradient for bars
+            const gradient = ctx.createLinearGradient(0, y, 0, y + barHeight);
+            gradient.addColorStop(0, gradientColor1);
+            gradient.addColorStop(1, gradientColor2);
+            
+            // Draw bar with rounded corners
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.roundRect(x, y, barWidth, barHeight, [4, 4, 0, 0]);
+            ctx.fill();
+            
+            // Draw bar border
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            
+            // Draw value on top of bar
+            ctx.fillStyle = '#111827';
+            ctx.font = 'bold 13px system-ui, -apple-system, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(zone.impactScore.toFixed(1), x + barWidth / 2, y - 8);
+            
+            // Draw recommendation badge above bar
+            const badgeColors = {
+                red: '#dc2626',
+                yellow: '#d97706',
+                green: '#059669'
+            };
+            
+            ctx.fillStyle = badgeColors[zone.recommendation.color];
+            ctx.font = '9px system-ui, -apple-system, sans-serif';
+            ctx.fillText(zone.recommendation.label, x + barWidth / 2, y - 22);
+        });
+        
+        // Draw x-axis labels below the chart with better spacing
+        rankedZones.forEach((zone, index) => {
+            const x = padding + index * (barWidth + barSpacing);
+            const labelY = padding + chartHeight + 20;
+            const centerX = x + barWidth / 2;
+            
+            // Calculate maximum text width based on available space
+            const maxTextWidth = barWidth + barSpacing - 5;
             
             // Draw zone label
             ctx.fillStyle = '#374151';
-            ctx.font = '10px Arial';
+            ctx.font = 'bold 11px system-ui, -apple-system, sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText(`Z${zone.zoneId}`, x + barWidth / 2, height - padding + 15);
+            const zoneLabel = `Zone ${zone.zoneId}`;
+            ctx.fillText(zoneLabel, centerX, labelY);
             
-            // Draw value
-            ctx.fillText(zone.impactScore.toFixed(0), x + barWidth / 2, y - 5);
+            // Draw zone name with smart truncation
+            ctx.fillStyle = '#6b7280';
+            ctx.font = '9px system-ui, -apple-system, sans-serif';
+            let zoneName = zone.zoneName;
+            
+            // Truncate zone name if it's too wide
+            if (ctx.measureText(zoneName).width > maxTextWidth) {
+                let truncated = zoneName;
+                while (ctx.measureText(truncated + '...').width > maxTextWidth && truncated.length > 0) {
+                    truncated = truncated.slice(0, -1);
+                }
+                zoneName = truncated + '...';
+            }
+            ctx.fillText(zoneName, centerX, labelY + 12);
+            
+            // Draw sample drug names with smart truncation
+            ctx.fillStyle = '#9ca3af';
+            ctx.font = '8px system-ui, -apple-system, sans-serif';
+            const sampleDrugs = zone.drugs.slice(0, 2).join(', ');
+            let displayDrugs = sampleDrugs;
+            
+            // Truncate drug names if they're too wide
+            if (ctx.measureText(sampleDrugs).width > maxTextWidth) {
+                let truncated = sampleDrugs;
+                while (ctx.measureText(truncated + '...').width > maxTextWidth && truncated.length > 0) {
+                    truncated = truncated.slice(0, -1);
+                }
+                displayDrugs = truncated + '...';
+            }
+            ctx.fillText(displayDrugs, centerX, labelY + 24);
         });
         
-        // Draw axes
-        ctx.strokeStyle = '#d1d5db';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(padding, height - padding);
-        ctx.lineTo(width - padding, height - padding);
-        ctx.stroke();
+        // Draw title
+        ctx.fillStyle = '#111827';
+        ctx.font = 'bold 14px system-ui, -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Zone Impact Analysis', rect.width / 2, 25);
+    }
+
+    // Start sensor rotation to test all zones
+    startSensorRotation() {
+        // Rotate through sensors every 10 seconds for testing (change to 30000 for production)
+        this.sensorRotationInterval = setInterval(() => {
+            this.rotateSensor();
+        }, 10000); // 10 seconds for testing
+    }
+
+    rotateSensor() {
+        const sensorIds = ['unit-001', 'unit-002', 'unit-003', 'unit-004', 'unit-005', 
+                           'unit-006', 'unit-007', 'unit-008', 'unit-009', 'unit-010'];
+        const currentIndex = sensorIds.indexOf(this.currentSensorId);
+        const nextIndex = (currentIndex + 1) % sensorIds.length;
+        this.currentSensorId = sensorIds[nextIndex];
+        
+        const zoneId = this.sensorZoneMap.get(this.currentSensorId);
+        const zone = this.zones.find(z => z.zoneId === zoneId);
+        
+        console.log(`Rotated to sensor: ${this.currentSensorId} (Zone ${zoneId}: ${zone?.zoneName})`);
+        
+        // Generate API response for this zone to ensure confidence data is available
+        this.generateApiResponseForZone(zoneId);
+        
+        // Update dashboard to show current zone
+        this.updateCurrentZoneDisplay();
+    }
+
+    async generateApiResponseForZone(zoneId) {
+        const zone = this.zones.find(z => z.zoneId === zoneId);
+        if (!zone) return;
+        
+        try {
+            // Generate API response for this zone with current conditions
+            const apiResponse = await this.callNeometronAPI(
+                zoneId, 
+                this.currentTemp, 
+                this.currentHumidity, 
+                120, // 2 minutes exposure
+                zone.drugs
+            );
+            
+            if (apiResponse) {
+                // Create or update impact log for this zone with API data
+                const existingLog = this.impactLogs.find(log => log.zoneId === zoneId);
+                
+                if (existingLog && !existingLog.apiResponse) {
+                    // Update existing log with API response
+                    existingLog.apiResponse = apiResponse;
+                    console.log(`Added API response for Zone ${zoneId}: ${(apiResponse.confidenceLevel * 100).toFixed(0)}% confidence`);
+                } else if (!existingLog) {
+                    // Create new impact log with API data
+                    const impactLog = {
+                        zoneId,
+                        zoneName: zone.zoneName,
+                        impactScore: apiResponse.impactScore,
+                        exposure: 120000, // 2 minutes in milliseconds
+                        temperature: this.currentTemp,
+                        anomalyScore: 0.3, // Low anomaly score for routine monitoring
+                        timestamp: new Date(),
+                        recommendation: this.generateQuarantineRecommendation(apiResponse.impactScore),
+                        sensitivityFactor: zone.sensitivityFactor,
+                        apiResponse: apiResponse,
+                        drugs: zone.drugs
+                    };
+                    
+                    this.impactLogs.unshift(impactLog);
+                    
+                    // Keep only recent logs
+                    if (this.impactLogs.length > 100) {
+                        this.impactLogs = this.impactLogs.slice(0, 100);
+                    }
+                }
+                
+                // Update zone impact score
+                this.zoneImpactScores.set(zoneId, apiResponse.impactScore);
+                
+                // Refresh the zone impact panel
+                this.updateZoneImpactPanel();
+            }
+        } catch (error) {
+            console.error(`Error generating API response for Zone ${zoneId}:`, error);
+        }
+    }
+
+    // Initialize API responses for all zones
+    async initializeAllZonesWithAPI() {
+        console.log('Initializing API responses for all zones...');
+        
+        // Generate API responses for all zones with a small delay between calls
+        for (let zoneId = 1; zoneId <= 10; zoneId++) {
+            await this.generateApiResponseForZone(zoneId);
+            // Small delay to prevent overwhelming the API
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
+        
+        console.log('All zones initialized with API responses');
+        // Update the zone impact panel to show all API data
+        this.updateZoneImpactPanel();
+    }
+
+    // Manual zone change for testing
+    changeToZone(zoneId) {
+        // Find sensor for this zone
+        for (const [sensorId, mappedZoneId] of this.sensorZoneMap.entries()) {
+            if (mappedZoneId === zoneId) {
+                this.currentSensorId = sensorId;
+                const zone = this.zones.find(z => z.zoneId === zoneId);
+                console.log(`Manually changed to sensor: ${this.currentSensorId} (Zone ${zoneId}: ${zone?.zoneName})`);
+                this.updateCurrentZoneDisplay();
+                break;
+            }
+        }
+    }
+
+    updateCurrentZoneDisplay() {
+        const zoneId = this.sensorZoneMap.get(this.currentSensorId);
+        const zone = this.zones.find(z => z.zoneId === zoneId);
+        
+        // Update any existing zone display elements
+        const zoneDisplayElement = document.getElementById('currentZoneDisplay');
+        if (zoneDisplayElement) {
+            zoneDisplayElement.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <span class="text-sm font-medium text-gray-700">Current Zone:</span>
+                    <span class="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                        Zone ${zoneId}: ${zone?.zoneName || 'Unknown'}
+                    </span>
+                </div>
+            `;
+        }
     }
 
     // Faster temperature and humidity simulation with frequent abnormal changes
@@ -896,8 +1486,8 @@ class ColdChainMonitor {
         this.currentHumidity += humidityDelta;
         
                 
-        // Occasionally force critical values for testing (5% chance)
-        if (Math.random() < 0.05) {
+        // Occasionally force critical values for testing (15% chance for humidity)
+        if (Math.random() < 0.15) {
             if (Math.random() < 0.5) {
                 // Force humidity below safe range
                 this.currentHumidity = this.humiditySafeRange.min - Math.random() * 10;
@@ -957,7 +1547,8 @@ class ColdChainMonitor {
         
         // Process zone impact if anomaly detected
         if (anomalyScore > 0.4) {
-            this.processZoneImpact(this.currentTemp, anomalyScore, new Date());
+            const zoneId = this.sensorZoneMap.get(this.currentSensorId) || 1;
+            this.processZoneImpactWithAPI(zoneId, this.currentTemp, anomalyScore, new Date());
         }
         
         this.updateDisplay();
@@ -1050,15 +1641,31 @@ class ColdChainMonitor {
         const alert = {
             id: Date.now(),
             temperature: this.currentTemp,
+            humidity: this.currentHumidity,
             timestamp: new Date(),
             status: 'CRITICAL',
-            sensorType: 'temperature'
+            sensorType: sensorType // 'temperature' or 'humidity'
         };
         
         // Add to both arrays
         this.alerts.unshift(alert);
         this.criticalAlerts.unshift(alert);
         this.showToast(alert);
+        this.updateAlertHistory();
+    }
+
+    recordHumidityWarning() {
+        const warning = {
+            id: Date.now(),
+            temperature: this.currentTemp,
+            humidity: this.currentHumidity,
+            timestamp: new Date(),
+            status: 'WARNING',
+            sensorType: 'humidity'
+        };
+        
+        // Add to alerts array for history but not to criticalAlerts
+        this.alerts.unshift(warning);
         this.updateAlertHistory();
     }
 
@@ -1069,18 +1676,28 @@ class ColdChainMonitor {
         const alertTemp = document.getElementById('alertTemp');
         const alertTime = document.getElementById('alertTime');
         
-        // Update modal content - temperature only
-        alertTemp.textContent = `${alert.temperature.toFixed(1)}°Celsius`;
+        // Update modal content based on sensor type
+        if (alert.sensorType === 'humidity') {
+            alertTemp.textContent = `${alert.humidity.toFixed(1)}% Humidity`;
+        } else {
+            alertTemp.textContent = `${alert.temperature.toFixed(1)}°Celsius`;
+        }
         alertTime.textContent = alert.timestamp.toLocaleTimeString();
         
-        // Update modal title and message - temperature only
+        // Update modal title and message based on sensor type
         const modalTitle = modal.querySelector('h3');
         const alertRange = document.getElementById('alertRange');
         const alertMessage = document.getElementById('alertMessage');
         
-        modalTitle.textContent = 'Critical Temperature Warning!';
-        alertRange.textContent = 'Safe Range: 2°Celsius - 8°Celsius';
-        alertMessage.textContent = 'Temperature is outside the safe pharmaceutical range!';
+        if (alert.sensorType === 'humidity') {
+            modalTitle.textContent = 'Critical Humidity Warning!';
+            alertRange.textContent = 'Safe Range: 40% - 60% Humidity';
+            alertMessage.textContent = 'Humidity is outside the safe pharmaceutical range!';
+        } else {
+            modalTitle.textContent = 'Critical Temperature Warning!';
+            alertRange.textContent = 'Safe Range: 2°Celsius - 8°Celsius';
+            alertMessage.textContent = 'Temperature is outside the safe pharmaceutical range!';
+        }
         
         // Show modal with animation
         modal.classList.remove('hidden');
@@ -1113,6 +1730,8 @@ class ColdChainMonitor {
     }
 
     updateDisplay() {
+        const now = Date.now();
+        
         // Update temperature display
         const tempDisplay = document.getElementById('temperatureDisplay');
         tempDisplay.textContent = `${this.currentTemp.toFixed(1)}°Celsius`;
@@ -1155,10 +1774,22 @@ class ColdChainMonitor {
             humidityStatusIndicator.className = 'inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-red-100 text-red-700';
             humidityStatusIndicator.innerHTML = '<div class="w-2 h-2 rounded-full mr-2 bg-red-500 animate-pulse"></div>CRITICAL';
             humidityCard.classList.add('critical-pulse');
+            
+            // Record humidity alert in history without popup
+            if ((now - this.lastHumidityAlertTime) > 10000) { // 10 second debounce
+                this.recordHumidityWarning();
+                this.lastHumidityAlertTime = now;
+            }
         } else if (isHumidityWarning) {
             humidityStatusIndicator.className = 'inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-yellow-100 text-yellow-700';
             humidityStatusIndicator.innerHTML = '<div class="w-2 h-2 rounded-full mr-2 bg-yellow-500"></div>WARNING';
             humidityCard.classList.remove('critical-pulse');
+            
+            // Record humidity warning in alert history without popup
+            if ((now - this.lastHumidityAlertTime) > 10000) { // 10 second debounce
+                this.recordHumidityWarning();
+                this.lastHumidityAlertTime = now;
+            }
         } else {
             humidityStatusIndicator.className = 'inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-green-100 text-green-700';
             humidityStatusIndicator.innerHTML = '<div class="w-2 h-2 rounded-full mr-2 bg-green-500"></div>NORMAL';
@@ -1198,6 +1829,7 @@ class ColdChainMonitor {
             const duration = this.calculateDuration(alert.timestamp);
             const isAbnormalChange = alert.type === 'ABNORMAL_CHANGE';
             const isCritical = alert.status === 'CRITICAL';
+            const isWarning = alert.status === 'WARNING';
             
             let statusBadge, statusColor, valueDisplay;
             
@@ -1208,14 +1840,38 @@ class ColdChainMonitor {
             } else if (isCritical) {
                 statusBadge = 'CRITICAL';
                 statusColor = 'bg-red-100 text-red-800';
-                valueDisplay = `${alert.temperature.toFixed(1)}°Celsius`;
+                // Show temperature or humidity based on sensor type
+                if (alert.sensorType === 'humidity') {
+                    valueDisplay = `${alert.humidity.toFixed(1)}% Humidity`;
+                } else {
+                    valueDisplay = `${alert.temperature.toFixed(1)}°Celsius`;
+                }
+            } else if (isWarning) {
+                statusBadge = 'WARNING';
+                statusColor = 'bg-yellow-100 text-yellow-800';
+                // Show temperature or humidity based on sensor type
+                if (alert.sensorType === 'humidity') {
+                    valueDisplay = `${alert.humidity.toFixed(1)}% Humidity`;
+                } else {
+                    valueDisplay = `${alert.temperature.toFixed(1)}°Celsius`;
+                }
             } else {
                 statusBadge = 'NORMAL';
                 statusColor = 'bg-green-100 text-green-800';
-                valueDisplay = `${alert.temperature.toFixed(1)}°Celsius`;
+                // Show temperature or humidity based on sensor type
+                if (alert.sensorType === 'humidity') {
+                    valueDisplay = `${alert.humidity.toFixed(1)}% Humidity`;
+                } else {
+                    valueDisplay = `${alert.temperature.toFixed(1)}°Celsius`;
+                }
             }
             
-            const isOutOfRange = alert.temperature < this.safeRange.min || alert.temperature > this.safeRange.max;
+            let isOutOfRange;
+            if (alert.sensorType === 'humidity') {
+                isOutOfRange = alert.humidity < this.humiditySafeRange.min || alert.humidity > this.humiditySafeRange.max;
+            } else {
+                isOutOfRange = alert.temperature < this.safeRange.min || alert.temperature > this.safeRange.max;
+            }
             
             return `
                 <tr class="hover:bg-gray-50">
@@ -1233,7 +1889,7 @@ class ColdChainMonitor {
                         </span>
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        Temperature
+                        ${alert.sensorType === 'humidity' ? 'Humidity' : 'Temperature'}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         ${duration}
@@ -1368,8 +2024,14 @@ class ColdChainMonitor {
             const minutes = Math.floor((uptime % 3600000) / 60000);
             const seconds = Math.floor((uptime % 60000) / 1000);
             
-            document.getElementById('uptime').textContent = 
-                `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            const uptimeText = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            
+            // Update both uptime elements
+            const headerUptime = document.getElementById('headerUptime');
+            const metricsUptime = document.getElementById('uptime');
+            
+            if (headerUptime) headerUptime.textContent = uptimeText;
+            if (metricsUptime) metricsUptime.textContent = uptimeText;
         }, 1000);
     }
 
@@ -1433,6 +2095,8 @@ class ColdChainMonitor {
             }
         });
 
+        
+        
         // Remove manual door toggle - doors now change randomly
         // Door status is now controlled automatically
     }

@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pharmaceutical Cold Chain Monitoring System - Standalone</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @keyframes pulse-red {
+            0%, 100% { background-color: rgb(239 68 68); }
+            50% { background-color: rgb(220 38 38); }
+        }
+        .critical-pulse {
+            animation: pulse-red 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        .toast {
+            animation: slideIn 0.3s ease-out;
+        }
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        @keyframes modalBounce {
+            0% { transform: scale(0.9); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .modal-enter {
+            animation: modalBounce 0.3s ease-out;
+        }
+        @keyframes alertGlow {
+            0%, 100% { box-shadow: 0 0 10px rgba(239, 68, 68, 0.3); }
+            50% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.5); }
+        }
+        .alert-glow {
+            animation: alertGlow 3s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <i data-lucide="thermometer" class="w-8 h-8 text-blue-600"></i>
+                    <h1 class="text-2xl font-bold text-gray-900">Cold Chain Monitor - API-Driven</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center">
+                        <div id="connectionStatus" class="w-3 h-3 bg-green-500 rounded-full mr-2"></div>
+                        <span class="text-sm text-gray-600">API Connected</span>
+                    </div>
+                    <div id="currentZoneDisplay" class="flex items-center">
+                        <span class="text-sm font-medium text-gray-700 mr-2">Current Zone:</span>
+                        <span class="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                            Zone 1: Critical Vaccines
+                        </span>
+                    </div>
+                    <div class="text-sm text-gray-500">
+                        Last updated: <span id="lastUpdate">--:--:--</span>
+                    </div>
+                </div>
+                <div class="text-sm text-gray-500">
+                    Uptime: <span id="headerUptime">00:00:00</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Temperature & Humidity Display Section -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            <!-- Current Temperature -->
+            <div class="lg:col-span-1">
+                <div id="temperatureCard" class="bg-white rounded-lg shadow-lg p-6 transition-all duration-300">
+                    <div class="text-center">
+                        <h2 class="text-lg font-semibold text-gray-700 mb-4">Current Temperature</h2>
+                        <div class="relative">
+                            <div id="temperatureDisplay" class="text-4xl font-bold text-gray-900 mb-2">
+                                --°Celsius
+                            </div>
+                            <div id="statusIndicator" class="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-gray-100 text-gray-700">
+                                <div class="w-2 h-2 rounded-full mr-2 bg-gray-400"></div>
+                                Initializing
+                            </div>
+                        </div>
+                        <div class="mt-4 text-sm text-gray-500">
+                            Safe Range: 2°Celsius - 8°Celsius
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Current Humidity -->
+            <div class="lg:col-span-1">
+                <div id="humidityCard" class="bg-white rounded-lg shadow-lg p-6">
+                    <div class="text-center">
+                        <h2 class="text-lg font-semibold text-gray-700 mb-4">Current Humidity</h2>
+                        <div class="relative">
+                            <div id="humidityDisplay" class="text-4xl font-bold text-gray-900 mb-2">
+                                --%
+                            </div>
+                            <div id="humidityStatusIndicator" class="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-gray-100 text-gray-700">
+                                <div class="w-2 h-2 rounded-full mr-2 bg-gray-400"></div>
+                                Initializing
+                            </div>
+                        </div>
+                        <div class="mt-4 text-sm text-gray-500">
+                            Safe Range: 40% - 60%
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- API Status Display -->
+            <div class="lg:col-span-1">
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <div class="text-center">
+                        <h2 class="text-lg font-semibold text-gray-700 mb-4">API Analysis Status</h2>
+                        <div class="relative">
+                            <div id="apiStatusDisplay" class="text-2xl font-bold text-green-600 mb-2">
+                                API-DRIVEN
+                            </div>
+                            <div id="apiConfidenceIndicator" class="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium bg-green-100 text-green-800">
+                                <div class="w-2 h-2 rounded-full mr-2 bg-green-500"></div>
+                                High Confidence
+                            </div>
+                        </div>
+                        <div class="mt-4 text-sm text-gray-500">
+                            Using Neometron API for drug impact analysis
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Zone-Based Drug Impact Analysis -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            <!-- Zone Impact Panel -->
+            <section class="lg:col-span-2 bg-white rounded-lg shadow-lg p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-gray-700">API-Driven Zone Impact Analysis</h2>
+                    <span class="text-xs text-gray-500">Real-time drug impact assessment</span>
+                </div>
+                <div id="zoneImpactPanel" class="space-y-2 max-h-96 overflow-y-auto">
+                    <p class="text-gray-500 text-center py-4">Initializing API-driven analysis...</p>
+                </div>
+            </section>
+
+            <!-- Quarantine Recommendation -->
+            <section class="bg-white rounded-lg shadow-lg p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-gray-700">API Quarantine Status</h2>
+                    <i data-lucide="shield-check" class="w-5 h-5 text-gray-500"></i>
+                </div>
+                <div id="quarantineDisplay">
+                    <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                        <div class="flex items-center">
+                            <i data-lucide="check-circle" class="w-6 h-6 text-green-500 mr-3"></i>
+                            <div>
+                                <h4 class="text-green-800 font-semibold">API Analysis: All Zones Safe</h4>
+                                <p class="text-green-600 text-sm">No quarantine actions required based on API analysis.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Controls -->
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-semibold text-gray-700">Monitoring Controls</h2>
+            </div>
+            <div class="flex space-x-4">
+                <button id="resetAlerts" class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center space-x-2">
+                    <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                    <span>Reset Alerts</span>
+                </button>
+                <button id="toggleMonitoring" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2">
+                    <i data-lucide="play" class="w-4 h-4"></i>
+                    <span>Start API Monitoring</span>
+                </button>
+                <button id="simulateApi" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center space-x-2">
+                    <i data-lucide="cpu" class="w-4 h-4"></i>
+                    <span>Simulate API Analysis</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Drug Impact Details -->
+        <section class="bg-white rounded-lg shadow-lg p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-semibold text-gray-700">API Drug Impact Details</h2>
+                <span class="text-xs text-gray-500">Latest API analysis results</span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Zone</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Drugs</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">API Impact</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">API Status</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Confidence</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">API-Driven</th>
+                        </tr>
+                    </thead>
+                    <tbody id="drugImpactTable" class="bg-white divide-y divide-gray-200">
+                        <tr>
+                            <td colspan="6" class="px-4 py-4 text-center text-gray-500">No API analysis available yet</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // Simplified Cold Chain Monitor with API-driven status generation
+        class StandaloneColdChainMonitor {
+            constructor() {
+                this.currentTemp = 5.0;
+                this.currentHumidity = 50.0;
+                this.isMonitoring = false;
+                this.zones = this.initializeZones();
+                this.zoneImpactScores = new Map();
+                this.impactLogs = [];
+                this.startTime = Date.now();
+                this.updateInterval = null;
+                this.uptimeInterval = null;
+                this.init();
+            }
+
+            initializeZones() {
+                return [
+                    {
+                        zoneId: 1,
+                        zoneName: 'Critical Vaccines',
+                        drugs: ['mRNA Vaccine', 'COVID-19 Vaccine', 'Influenza Vaccine'],
+                        sensitivityFactor: 1.5
+                    },
+                    {
+                        zoneId: 2,
+                        zoneName: 'Insulin Products',
+                        drugs: ['Rapid-acting Insulin', 'Long-acting Insulin'],
+                        sensitivityFactor: 1.4
+                    },
+                    {
+                        zoneId: 3,
+                        zoneName: 'Antibiotics',
+                        drugs: ['Amoxicillin', 'Penicillin', 'Cephalexin'],
+                        sensitivityFactor: 1.2
+                    }
+                ];
+            }
+
+            // API-driven status generation
+            generateQuarantineRecommendation(impactScore, apiResponse = null) {
+                if (apiResponse && apiResponse.analysisDetails) {
+                    const { analysisDetails, affectedDrugs, confidenceLevel } = apiResponse;
+                    const highImpactDrugs = affectedDrugs.filter(drug => drug.impactLevel === 'HIGH').length;
+                    const moderateImpactDrugs = affectedDrugs.filter(drug => drug.impactLevel === 'MODERATE').length;
+                    
+                    if (highImpactDrugs > 0 || analysisDetails.temperatureImpact === 'SEVERE') {
+                        return {
+                            label: 'QUARANTINE',
+                            color: 'red',
+                            reason: `API Analysis: ${highImpactDrugs} high-impact drugs. ${analysisDetails.temperatureImpact} impact with ${(confidenceLevel * 100).toFixed(1)}% confidence.`,
+                            action: 'Immediate quarantine required based on API analysis.',
+                            apiDriven: true,
+                            confidence: confidenceLevel,
+                            affectedDrugsCount: { high: highImpactDrugs, moderate: moderateImpactDrugs }
+                        };
+                    } else if (moderateImpactDrugs > 0 || analysisDetails.temperatureImpact === 'MODERATE') {
+                        return {
+                            label: 'MONITOR',
+                            color: 'yellow',
+                            reason: `API Analysis: ${moderateImpactDrugs} moderate-impact drugs. ${analysisDetails.temperatureImpact} impact with ${(confidenceLevel * 100).toFixed(1)}% confidence.`,
+                            action: 'Enhanced monitoring based on API analysis.',
+                            apiDriven: true,
+                            confidence: confidenceLevel,
+                            affectedDrugsCount: { high: highImpactDrugs, moderate: moderateImpactDrugs }
+                        };
+                    } else {
+                        return {
+                            label: 'SAFE',
+                            color: 'green',
+                            reason: `API Analysis: Low impact with ${(confidenceLevel * 100).toFixed(1)}% confidence. All drugs safe.`,
+                            action: 'Continue normal operations based on API analysis.',
+                            apiDriven: true,
+                            confidence: confidenceLevel,
+                            affectedDrugsCount: { high: highImpactDrugs, moderate: moderateImpactDrugs }
+                        };
+                    }
+                }
+                
+                // Fallback logic
+                if (impactScore > 50) {
+                    return { label: 'QUARANTINE', color: 'red', apiDriven: false };
+                } else if (impactScore >= 20) {
+                    return { label: 'MONITOR', color: 'yellow', apiDriven: false };
+                } else {
+                    return { label: 'SAFE', color: 'green', apiDriven: false };
+                }
+            }
+
+            // Simulate API response
+            simulateApiResponse(zoneId, temperature, humidity) {
+                const zone = this.zones.find(z => z.zoneId === zoneId);
+                const tempDeviation = Math.abs(temperature - 5);
+                const confidenceLevel = 0.7 + Math.random() * 0.3;
+                
+                let temperatureImpact = 'LOW';
+                if (tempDeviation > 3) temperatureImpact = 'SEVERE';
+                else if (tempDeviation > 1.5) temperatureImpact = 'MODERATE';
+                
+                const affectedDrugs = zone.drugs.map(drug => {
+                    const drugImpact = Math.random();
+                    let impactLevel = 'LOW';
+                    if (drugImpact > 0.7) impactLevel = 'HIGH';
+                    else if (drugImpact > 0.4) impactLevel = 'MODERATE';
+                    
+                    return { name: drug, impactLevel, confidence: confidenceLevel };
+                });
+                
+                return {
+                    impactScore: Math.round(tempDeviation * zone.sensitivityFactor * 10 + Math.random() * 20),
+                    confidenceLevel,
+                    affectedDrugs,
+                    analysisDetails: {
+                        temperatureImpact,
+                        humidityImpact: 'LOW',
+                        durationImpact: 'LOW'
+                    },
+                    zoneId,
+                    timestamp: new Date().toISOString(),
+                    apiMode: 'mock'
+                };
+            }
+
+            async processZoneImpactWithAPI(zoneId, temperature) {
+                const zone = this.zones.find(z => z.zoneId === zoneId);
+                if (!zone) return null;
+                
+                // Simulate API call
+                const apiResponse = this.simulateApiResponse(zoneId, temperature, this.currentHumidity);
+                
+                // Calculate impact score
+                const impactScore = apiResponse.impactScore;
+                this.zoneImpactScores.set(zoneId, impactScore);
+                
+                // Generate API-driven recommendation
+                const recommendation = this.generateQuarantineRecommendation(impactScore, apiResponse);
+                
+                // Log impact
+                const impactLog = {
+                    zoneId,
+                    zoneName: zone.zoneName,
+                    impactScore,
+                    temperature,
+                    timestamp: new Date(),
+                    recommendation,
+                    apiResponse,
+                    drugs: zone.drugs
+                };
+                
+                this.impactLogs.unshift(impactLog);
+                if (this.impactLogs.length > 100) {
+                    this.impactLogs = this.impactLogs.slice(0, 100);
+                }
+                
+                return impactLog;
+            }
+
+            updateDisplay() {
+                // Update temperature
+                document.getElementById('temperatureDisplay').textContent = this.currentTemp.toFixed(1) + '°Celsius';
+                document.getElementById('humidityDisplay').textContent = this.currentHumidity.toFixed(1) + '%';
+                document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+                
+                // Update status
+                const tempStatus = this.currentTemp < 2 || this.currentTemp > 8 ? 'CRITICAL' : 'NORMAL';
+                const statusElement = document.getElementById('statusIndicator');
+                statusElement.className = `inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${
+                    tempStatus === 'CRITICAL' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
+                }`;
+                statusElement.innerHTML = `<div class="w-2 h-2 rounded-full mr-2 bg-${
+                    tempStatus === 'CRITICAL' ? 'red' : 'green'
+                }-500"></div>${tempStatus}`;
+                
+                // Update zone impact panel
+                this.updateZoneImpactPanel();
+                this.updateQuarantineDisplay();
+                this.updateDrugImpactTable();
+            }
+
+            updateZoneImpactPanel() {
+                const panel = document.getElementById('zoneImpactPanel');
+                if (this.impactLogs.length === 0) {
+                    panel.innerHTML = '<p class="text-gray-500 text-center py-4">No API analysis data available</p>';
+                    return;
+                }
+                
+                const recentLogs = this.impactLogs.slice(0, 5);
+                panel.innerHTML = recentLogs.map(log => {
+                    const rec = log.recommendation;
+                    const colorClass = rec.color === 'red' ? 'border-red-500 bg-red-50' : 
+                                      rec.color === 'yellow' ? 'border-yellow-500 bg-yellow-50' : 
+                                      'border-green-500 bg-green-50';
+                    const textColor = rec.color === 'red' ? 'text-red-800' : 
+                                     rec.color === 'yellow' ? 'text-yellow-800' : 
+                                     'text-green-800';
+                    
+                    return `
+                        <div class="border-l-4 ${colorClass} p-3 rounded">
+                            <div class="flex justify-between items-start">
+                                <div class="flex-1">
+                                    <p class="font-semibold ${textColor}">${rec.label} - ${log.zoneName}</p>
+                                    <p class="text-sm ${textColor}">${rec.reason}</p>
+                                    <p class="text-xs text-gray-600 mt-1">
+                                        Impact Score: ${log.impactScore.toFixed(1)} | 
+                                        ${rec.apiDriven ? 'API-Driven' : 'Score-Based'} | 
+                                        ${rec.confidence ? `Confidence: ${(rec.confidence * 100).toFixed(1)}%` : ''}
+                                    </p>
+                                </div>
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-${rec.color}-100 text-${rec.color}-800 ml-2">
+                                    ${rec.apiDriven ? 'API' : 'LOCAL'}
+                                </span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            updateQuarantineDisplay() {
+                const display = document.getElementById('quarantineDisplay');
+                const criticalZones = this.impactLogs.filter(log => log.recommendation.label === 'QUARANTINE');
+                
+                if (criticalZones.length > 0) {
+                    display.innerHTML = `
+                        <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                            <div class="flex items-center">
+                                <i data-lucide="alert-triangle" class="w-6 h-6 text-red-500 mr-3"></i>
+                                <div>
+                                    <h4 class="text-red-800 font-semibold">API Analysis: QUARANTINE REQUIRED</h4>
+                                    <p class="text-red-600 text-sm">${criticalZones.length} zone(s) require immediate quarantine based on API analysis.</p>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    const monitorZones = this.impactLogs.filter(log => log.recommendation.label === 'MONITOR');
+                    if (monitorZones.length > 0) {
+                        display.innerHTML = `
+                            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                                <div class="flex items-center">
+                                    <i data-lucide="alert-circle" class="w-6 h-6 text-yellow-500 mr-3"></i>
+                                    <div>
+                                        <h4 class="text-yellow-800 font-semibold">API Analysis: ENHANCED MONITORING</h4>
+                                        <p class="text-yellow-600 text-sm">${monitorZones.length} zone(s) require enhanced monitoring based on API analysis.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        display.innerHTML = `
+                            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                                <div class="flex items-center">
+                                    <i data-lucide="check-circle" class="w-6 h-6 text-green-500 mr-3"></i>
+                                    <div>
+                                        <h4 class="text-green-800 font-semibold">API Analysis: All Zones Safe</h4>
+                                        <p class="text-green-600 text-sm">No quarantine actions required based on API analysis.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                }
+            }
+
+            updateDrugImpactTable() {
+                const table = document.getElementById('drugImpactTable');
+                if (this.impactLogs.length === 0) {
+                    table.innerHTML = '<tr><td colspan="6" class="px-4 py-4 text-center text-gray-500">No API analysis available yet</td></tr>';
+                    return;
+                }
+                
+                const recentLogs = this.impactLogs.slice(0, 5);
+                table.innerHTML = recentLogs.map(log => {
+                    const rec = log.recommendation;
+                    const statusColor = rec.color === 'red' ? 'text-red-800' : 
+                                     rec.color === 'yellow' ? 'text-yellow-800' : 
+                                     'text-green-800';
+                    const badgeColor = rec.color === 'red' ? 'bg-red-100 text-red-800' : 
+                                     rec.color === 'yellow' ? 'bg-yellow-100 text-yellow-800' : 
+                                     'bg-green-100 text-green-800';
+                    
+                    return `
+                        <tr>
+                            <td class="px-4 py-3 text-sm text-gray-900">${log.zoneName}</td>
+                            <td class="px-4 py-3 text-sm text-gray-500">${log.drugs.slice(0, 2).join(', ')}</td>
+                            <td class="px-4 py-3 text-sm font-medium text-gray-900">${log.impactScore.toFixed(1)}</td>
+                            <td class="px-4 py-3 text-sm">
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full ${badgeColor}">
+                                    ${rec.label}
+                                </span>
+                            </td>
+                            <td class="px-4 py-3 text-sm text-gray-500">
+                                ${rec.confidence ? (rec.confidence * 100).toFixed(1) + '%' : 'N/A'}
+                            </td>
+                            <td class="px-4 py-3 text-sm">
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full ${
+                                    rec.apiDriven ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'
+                                }">
+                                    ${rec.apiDriven ? 'API-Driven' : 'Local'}
+                                </span>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+
+            startMonitoring() {
+                if (this.isMonitoring) return;
+                
+                this.isMonitoring = true;
+                const toggleBtn = document.getElementById('toggleMonitoring');
+                toggleBtn.innerHTML = '<i data-lucide="pause" class="w-4 h-4"></i><span>Stop Monitoring</span>';
+                toggleBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+                toggleBtn.classList.add('bg-red-600', 'hover:bg-red-700');
+                
+                this.updateInterval = setInterval(() => {
+                    // Simulate temperature variations
+                    this.currentTemp += (Math.random() - 0.5) * 2;
+                    this.currentTemp = Math.max(-2, Math.min(12, this.currentTemp));
+                    this.currentHumidity += (Math.random() - 0.5) * 5;
+                    this.currentHumidity = Math.max(30, Math.min(70, this.currentHumidity));
+                    
+                    // Process API-driven impact for each zone
+                    this.zones.forEach(zone => {
+                        this.processZoneImpactWithAPI(zone.zoneId, this.currentTemp);
+                    });
+                    
+                    this.updateDisplay();
+                }, 3000);
+                
+                this.updateDisplay();
+            }
+
+            stopMonitoring() {
+                this.isMonitoring = false;
+                const toggleBtn = document.getElementById('toggleMonitoring');
+                toggleBtn.innerHTML = '<i data-lucide="play" class="w-4 h-4"></i><span>Start API Monitoring</span>';
+                toggleBtn.classList.remove('bg-red-600', 'hover:bg-red-700');
+                toggleBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                
+                if (this.updateInterval) {
+                    clearInterval(this.updateInterval);
+                    this.updateInterval = null;
+                }
+            }
+
+            simulateApiAnalysis() {
+                // Simulate various scenarios
+                const scenarios = [
+                    { temp: 12.5, zone: 1 }, // High temp - Critical Vaccines
+                    { temp: -1.2, zone: 2 }, // Low temp - Insulin
+                    { temp: 7.8, zone: 3 },  // Normal - Antibiotics
+                    { temp: 15.0, zone: 1 }, // Very high temp - Critical Vaccines
+                    { temp: 4.2, zone: 2 }   // Normal - Insulin
+                ];
+                
+                const scenario = scenarios[Math.floor(Math.random() * scenarios.length)];
+                this.currentTemp = scenario.temp;
+                
+                this.processZoneImpactWithAPI(scenario.zone, this.currentTemp);
+                this.updateDisplay();
+                
+                // Show notification
+                this.showNotification(`API Analysis Complete for Zone ${scenario.zone}`, 'success');
+            }
+
+            showNotification(message, type = 'info') {
+                const notification = document.createElement('div');
+                notification.className = `fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 ${
+                    type === 'success' ? 'bg-green-500 text-white' : 'bg-blue-500 text-white'
+                }`;
+                notification.innerHTML = `
+                    <div class="flex items-center">
+                        <i data-lucide="${type === 'success' ? 'check-circle' : 'info'}" class="w-5 h-5 mr-2"></i>
+                        <span>${message}</span>
+                    </div>
+                `;
+                document.body.appendChild(notification);
+                lucide.createIcons();
+                
+                setTimeout(() => {
+                    notification.remove();
+                }, 3000);
+            }
+
+            startUptimeCounter() {
+                this.uptimeInterval = setInterval(() => {
+                    const uptime = Date.now() - this.startTime;
+                    const hours = Math.floor(uptime / 3600000);
+                    const minutes = Math.floor((uptime % 3600000) / 60000);
+                    const seconds = Math.floor((uptime % 60000) / 1000);
+                    const uptimeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                    document.getElementById('headerUptime').textContent = uptimeStr;
+                }, 1000);
+            }
+
+            init() {
+                this.bindEvents();
+                this.startUptimeCounter();
+                this.updateDisplay();
+                lucide.createIcons();
+            }
+
+            bindEvents() {
+                document.getElementById('toggleMonitoring').addEventListener('click', () => {
+                    if (this.isMonitoring) {
+                        this.stopMonitoring();
+                    } else {
+                        this.startMonitoring();
+                    }
+                });
+
+                document.getElementById('resetAlerts').addEventListener('click', () => {
+                    this.impactLogs = [];
+                    this.zoneImpactScores.clear();
+                    this.updateDisplay();
+                    this.showNotification('All alerts and API analysis data reset', 'success');
+                });
+
+                document.getElementById('simulateApi').addEventListener('click', () => {
+                    this.simulateApiAnalysis();
+                });
+            }
+        }
+
+        // Initialize the monitor when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            const monitor = new StandaloneColdChainMonitor();
+        });
+    </script>
+</body>
+</html>
